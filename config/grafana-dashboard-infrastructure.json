@@ -1,0 +1,230 @@
+{
+  "dashboard": {
+    "title": "AI Video FTE - Infrastructure Health",
+    "uid": "ai-video-fte-infrastructure",
+    "tags": ["ai-video-fte", "infrastructure", "database", "redis", "vault", "health"],
+    "timezone": "utc",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Database Query Latency (P50, P95, P99)",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(ai_video_db_query_duration_seconds_bucket[5m])) by (le, operation))",
+            "legendFormat": "P50 {{operation}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(ai_video_db_query_duration_seconds_bucket[5m])) by (le, operation))",
+            "legendFormat": "P95 {{operation}}",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(ai_video_db_query_duration_seconds_bucket[5m])) by (le, operation))",
+            "legendFormat": "P99 {{operation}}",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {"defaults": {"unit": "s"}}
+      },
+      {
+        "id": 2,
+        "title": "Redis Command Latency (P50, P95, P99)",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(ai_video_redis_command_duration_seconds_bucket[5m])) by (le, command))",
+            "legendFormat": "P50 {{command}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(ai_video_redis_command_duration_seconds_bucket[5m])) by (le, command))",
+            "legendFormat": "P95 {{command}}",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(ai_video_redis_command_duration_seconds_bucket[5m])) by (le, command))",
+            "legendFormat": "P99 {{command}}",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {"defaults": {"unit": "s"}}
+      },
+      {
+        "id": 3,
+        "title": "Vault Encrypt Latency (P50, P95, P99)",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(ai_video_vault_encrypt_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P50 Encrypt",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(ai_video_vault_encrypt_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P95 Encrypt",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(ai_video_vault_encrypt_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P99 Encrypt",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {"defaults": {"unit": "s"}}
+      },
+      {
+        "id": 4,
+        "title": "Vault Decrypt Latency (P50, P95, P99)",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(ai_video_vault_decrypt_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P50 Decrypt",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(ai_video_vault_decrypt_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P95 Decrypt",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(ai_video_vault_decrypt_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P99 Decrypt",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {"defaults": {"unit": "s"}}
+      },
+      {
+        "id": 5,
+        "title": "Database Pool Usage",
+        "type": "gauge",
+        "gridPos": {"x": 0, "y": 16, "w": 8, "h": 8},
+        "targets": [
+          {
+            "expr": "ai_video_db_pool_usage_gauge",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 1,
+            "unit": "percentunit",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 0.7},
+                {"color": "red", "value": 0.9}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Redis Connections",
+        "type": "stat",
+        "gridPos": {"x": 8, "y": 16, "w": 8, "h": 8},
+        "targets": [
+          {
+            "expr": "ai_video_redis_connection_gauge",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 50},
+                {"color": "red", "value": 100}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Vault Status",
+        "type": "stat",
+        "gridPos": {"x": 16, "y": 16, "w": 8, "h": 8},
+        "targets": [
+          {
+            "expr": "ai_video_vault_status_gauge",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+            ]
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "Vault Encrypt Operations",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 24, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_vault_encrypt_total[5m]) * 60",
+            "legendFormat": "{{status}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Vault Decrypt Operations",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 24, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_vault_decrypt_total[5m]) * 60",
+            "legendFormat": "{{status}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Vault DEK Rotations",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 32, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_vault_dek_rotation_total[5m]) * 60",
+            "legendFormat": "{{status}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Vault KEK Rotations",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 32, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_vault_kek_rotation_total[5m]) * 60",
+            "legendFormat": "{{status}}",
+            "refId": "A"
+          }
+        ]
+      }
+    ],
+    "time": {"from": "now-1h", "to": "now"},
+    "refresh": "10s"
+  }
+}

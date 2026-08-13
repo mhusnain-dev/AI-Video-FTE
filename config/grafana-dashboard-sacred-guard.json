@@ -1,0 +1,102 @@
+{
+  "dashboard": {
+    "title": "AI Video FTE - Sacred Guard & Audit",
+    "uid": "ai-video-fte-sacred-guard",
+    "tags": ["ai-video-fte", "sacred-guard", "audit", "denylist", "dual-auth"],
+    "timezone": "utc",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Sacred Guard Blocks by Enforcement Point",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_sacred_guard_block_total[5m]) * 60",
+            "legendFormat": "{{enforcement_point}} ({{match_type}})",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Sacred Guard Blocks by Model",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_sacred_guard_block_total[5m]) * 60",
+            "legendFormat": "{{model_id}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Admission Audit Entries (per gate)",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_admission_audit_write_duration_seconds_count[5m]) * 60",
+            "legendFormat": "{{gate}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Admission Audit Write Latency (P99)",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(ai_video_admission_audit_write_duration_seconds_bucket[5m])) by (le, gate))",
+            "legendFormat": "P99 {{gate}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {"defaults": {"unit": "s"}}
+      },
+      {
+        "id": 5,
+        "title": "Sacred Entity Audit Actions",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_sacred_entity_audit_actions_total[5m]) * 60",
+            "legendFormat": "{{action}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Dual-Authorization Pending (Denylist)",
+        "type": "stat",
+        "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "ai_video_sacred_denylist_pending_dual_auth",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 5},
+                {"color": "red", "value": 10}
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "time": {"from": "now-6h", "to": "now"},
+    "refresh": "30s"
+  }
+}

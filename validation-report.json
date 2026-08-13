@@ -1,0 +1,51 @@
+{
+  "validate_deployment_sh": {
+    "vault_check_command": "docker compose -f docker-compose.prod.yaml exec -T vault vault status -tls-skip-verify | grep -q \"Sealed\\|Initialized\"",
+    "vault_check_expects_https": true,
+    "vault_check_uses_tls_skip_verify": true,
+    "nginx_metrics_check": "curl -sf \"http://localhost/metrics\" > /dev/null || warn \"Metrics endpoint not accessible via nginx\"",
+    "api_health_check": "check_health_endpoint \"http://localhost/health\" \"API (via nginx)\" — internally: curl -sf \"http://localhost/health\" | jq -e '.status == \"healthy\"'",
+    "all_21_checks_list": [
+      "1. Check required commands (curl, jq, docker, kubectl)",
+      "2. docker compose -f docker-compose.prod.yaml ps (service status)",
+      "3. Wait for postgres health check (docker healthcheck)",
+      "4. Wait for redis health check (docker healthcheck)",
+      "5. Wait for vault health check (docker healthcheck)",
+      "6. Wait for api health check (no docker healthcheck — passes as 'none')",
+      "7. Wait for nginx health check (no docker healthcheck — passes as 'none')",
+      "8. Wait for frontend health check (no docker healthcheck — passes as 'none')",
+      "9. Wait for prometheus health check (no docker healthcheck — passes as 'none')",
+      "10. Wait for grafana health check (no docker healthcheck — passes as 'none')",
+      "11. Wait for alertmanager health check (no docker healthcheck — passes as 'none')",
+      "12. Validate API via nginx — check_health_endpoint http://localhost/health",
+      "13. Validate Prometheus — curl http://localhost:9091/-/healthy",
+      "14. Validate Grafana — curl http://localhost:3001/api/health | jq .database",
+      "15. Validate Alertmanager — curl http://localhost:9093/-/healthy",
+      "16. Validate metrics endpoint — curl http://localhost/metrics (via nginx)",
+      "17. Test database connection — pg_isready",
+      "18. Test Redis — redis-cli ping",
+      "19. Test Vault — vault status -tls-skip-verify"
+    ]
+  },
+  "https_alignment": {
+    "vault_check_compatible_with_https_selfsigned": true,
+    "nginx_metrics_check_issue": "nginx config (config/nginx.conf:171-178) allows only RFC1918 ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) for /metrics. The validation runs from localhost (127.0.0.1) which is NOT in those ranges — will return 403 Forbidden. Principal said no unrelated changes.",
+    "healthchecks_for_all_services": "Only postgres, redis, vault have docker healthchecks defined in docker-compose.prod.yaml. api, nginx, frontend, prometheus, grafana, alertmanager have NO healthchecks — script treats 'none' as passing (line 145: health == 'healthy' || health == 'none')."
+  },
+  "required_changes_for_https": [
+    {
+      "check": "vault status",
+      "change": "No change needed. vault status -tls-skip-verify works with self-signed certs. Vault service uses VAULT_ADDR=https://vault:8200 (docker-compose.prod.yaml:59)."
+    },
+    {
+      "check": "nginx metrics",
+      "change": "No change — Principal said no unrelated changes. Pre-existing bug: 127.0.0.1 denied by RFC1918 allow list."
+    },
+    {
+      "check": "all services healthcheck",
+      "change": "No change — Principal said no unrelated changes. 6 of 9 services lack docker healthchecks."
+    }
+  ],
+  "blockers": [],
+  "confidence": 95
+}

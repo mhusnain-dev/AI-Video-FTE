@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-video-fte-config
+  namespace: fte-production
+data:
+  NODE_ENV: "production"
+  CONFIG_DIR: "/app/config"
+  POSTGRES_HOST: "postgres"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "ai_video_fte"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  VAULT_ADDR: "https://vault:8200"
+  VAULT_TRANSIT_KEY: "biometric-encryption"
+  ALERTMANAGER_WEBHOOK_URL: "http://alertmanager:9093"
+  ARCHIVE_BACKEND: "s3"
+  ARCHIVE_BUCKET: "ai-video-fte-archives"
+  ARCHIVE_LOCAL_PATH: "/data/archive"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ai-video-fte-secrets
+  namespace: fte-production
+type: Opaque
+stringData:
+  # These should be replaced with actual values or loaded from external secret manager
+  POSTGRES_PASSWORD: "CHANGE_ME"
+  REDIS_PASSWORD: "CHANGE_ME"
+  VAULT_TOKEN: "CHANGE_ME"
+  ELEVENLABS_API_KEY: "CHANGE_ME"
+  VEO_API_KEY: "CHANGE_ME"
+  RUNWAY_API_KEY: "CHANGE_ME"
+  LUMA_API_KEY: "CHANGE_ME"
+  GRAFANA_PASSWORD: "CHANGE_ME"

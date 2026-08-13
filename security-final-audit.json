@@ -1,0 +1,72 @@
+{
+  "auditor": "security-secrets",
+  "vault_tls_pki": {
+    "listener_consistent": false,
+    "certs_generated": true,
+    "ca_key_removed": false,
+    "csr_srl_cleaned": false,
+    "self_signed_acceptable": true
+  },
+  "docker_secrets": {
+    "mechanism_used_exclusively": false,
+    "all_secret_files_600": false,
+    "gitignore_complete": false,
+    "no_placeholders": false
+  },
+  "network_exposure": {
+    "only_nginx_exposed": false,
+    "unnecessary_ports": [
+      "postgres:5432",
+      "redis:6379",
+      "vault:8200",
+      "vault:8201",
+      "api:3000",
+      "api:9090",
+      "prometheus:9091",
+      "grafana:3001",
+      "alertmanager:9093"
+    ],
+    "vault_ui_disabled": false
+  },
+  "vault_operations": {
+    "unseal_before_api": false,
+    "api_tls_configured": false
+  },
+  "nginx_tls": {
+    "certs_present": false,
+    "csp_headers_secure": true
+  },
+  "security_blockers": [
+    "Vault TLS listener configuration inconsistent: tls_disable=false with cert paths, but api_addr/cluster_addr=https:// expects TLS; however docker-compose healthcheck uses -tls-skip-verify masking TLS failures",
+    "CA private key (ca.key) deployed in config/vault-tls/ - must be removed post-cert-generation per PKI best practices",
+    "CSR (vault.csr) and serial file (ca.srl) not cleaned up after cert generation",
+    "Docker secrets mechanism defined but NOT used exclusively: api, postgres, redis services use ${VAR} plaintext env var substitution instead of Docker secret FILE references",
+    "All 8 secret files in secrets/ have 664 permissions (group/other readable) instead of required 600",
+    "secrets/ directory and config/vault-tls/ NOT in .gitignore - risk of committing production credentials",
+    "4 API keys contain placeholder values (elevenlabs_key, veo_key, runway_key, luma_key) - deployment will fail at runtime",
+    "9 services expose unnecessary ports on host: postgres(5432), redis(6379), vault(8200/8201), api(3000/9090), prometheus(9091), grafana(3001), alertmanager(9093) - only nginx 80/443 should be exposed",
+    "Vault UI enabled in production (ui = true) - unnecessary attack surface",
+    "Vault starts sealed; healthcheck passes when sealed (vault status -tls-skip-verify returns 0 when sealed); api depends_on vault:healthy starts api BEFORE Vault is unsealed - API cannot access secrets/transit",
+    "API-to-Vault TLS incomplete: VAULT_ADDR=https://vault:8200 but no VAULT_CACERT, VAULT_CLIENT_CERT, or VAULT_CLIENT_KEY configured in api service",
+    "nginx TLS certificates missing: config/nginx-tls/ empty but nginx.conf references /etc/nginx/tls/fullchain.pem and privkey.pem - nginx will fail to start on port 443"
+  ],
+  "security_recommendations": [
+    "Fix vault.hcl: ensure tls_disable=false, verify cert paths, ensure api_addr/cluster_addr=https:// consistent",
+    "Remove ca.key from config/vault-tls/ after cert generation (setup-secrets.sh line 131 shows intent but file persists)",
+    "Clean up vault.csr and ca.srl from config/vault-tls/",
+    "Migrate all service environment variables to use Docker secrets FILE mechanism: e.g., POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password instead of POSTGRES_PASSWORD=${POSTGRES_PASSWORD}",
+    "Enforce chmod 600 on all secret files in setup-secrets.sh (currently only recommends, does not enforce)",
+    "Add 'secrets/' and 'config/vault-tls/' to .gitignore",
+    "Replace placeholder API keys with actual values before production deployment",
+    "Remove all non-nginx port bindings from docker-compose.prod.yaml (postgres, redis, vault, api, prometheus, grafana, alertmanager) - use internal docker network only",
+    "Set ui = false in config/vault.hcl for production",
+    "Add explicit unseal step: either use Vault auto-unseal (KMS/HSM) or add init/unseal container that runs before api depends_on",
+    "Configure API service with VAULT_CACERT=/vault/tls/ca.crt and verify TLS connection",
+    "Generate/provide valid nginx TLS certificates (fullchain.pem, privkey.pem) in config/nginx-tls/",
+    "Consider CSP improvement: replace 'unsafe-inline' and 'unsafe-eval' with nonces/hashes",
+    "Set Vault audit log mode to 0600 in vault.hcl",
+    "Change Grafana admin username from hardcoded 'admin' to configurable value",
+    "Use least-privilege PostgreSQL role instead of superuser 'postgres' for application"
+  ],
+  "security_posture": "BLOCKED"
+}

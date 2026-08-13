@@ -1,0 +1,240 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: fte-production
+data:
+  alerts.yml: |
+    groups:
+      - name: ai-video-fte.critical
+        interval: 30s
+        rules:
+          - alert: SacredGuardBlock
+            expr: increase(ai_video_sacred_guard_blocks_total[5m]) > 0
+            for: 0s
+            labels:
+              severity: critical
+              service: ai-video-fte
+              team: security
+            annotations:
+              summary: "Sacred Guard blocked content"
+              description: "Sacred Guard blocked {{ $value }} requests in the last 5 minutes. Enforcement point: {{ $labels.enforcement_point }}, Model: {{ $labels.model_id }}"
+              runbook_url: "https://runbooks.example.com/sacred-guard-block"
+
+          - alert: MergeFailure
+            expr: increase(ai_video_merge_failures_total[5m]) > 0
+            for: 0s
+            labels:
+              severity: critical
+              service: ai-video-fte
+              team: platform
+            annotations:
+              summary: "Video merge failed"
+              description: "{{ $value }} merge failures in the last 5 minutes. Story: {{ $labels.story_id }}"
+
+          - alert: AllModelsFailedForShot
+            expr: increase(ai_video_shot_all_models_failed_total[5m]) > 0
+            for: 0s
+            labels:
+              severity: critical
+              service: ai-video-fte
+              team: platform
+            annotations:
+              summary: "All models failed for shot"
+              description: "All fallback models exhausted for shot {{ $labels.shot_id }}. Story: {{ $labels.story_id }}"
+
+          - alert: DatabaseUnavailable
+            expr: up{job="postgres"} == 0
+            for: 1m
+            labels:
+              severity: critical
+              service: postgresql
+              team: platform
+            annotations:
+              summary: "PostgreSQL unavailable"
+              description: "PostgreSQL has been down for more than 1 minute"
+
+          - alert: VaultUnavailable
+            expr: up{job="vault"} == 0
+            for: 1m
+            labels:
+              severity: critical
+              service: vault
+              team: platform
+            annotations:
+              summary: "Vault unavailable"
+              description: "Vault has been down for more than 1 minute"
+
+      - name: ai-video-fte.warning
+        interval: 60s
+        rules:
+          - alert: CostDriftHigh
+            expr: ai_video_cost_drift_percentage > 50
+            for: 5m
+            labels:
+              severity: warning
+              service: ai-video-fte
+              team: engineering
+            annotations:
+              summary: "Cost drift exceeds 50%"
+              description: "Story {{ $labels.story_id }} cost drift is {{ $value }}%. Threshold: 50%. Model: {{ $labels.model_id }}"
+
+          - alert: FaceLockFailureRateHigh
+            expr: rate(ai_video_face_lock_failures_total[15m]) / rate(ai_video_face_lock_attempts_total[15m]) > 0.1
+            for: 5m
+            labels:
+              severity: warning
+              service: ai-video-fte
+              team: engineering
+            annotations:
+              summary: "Face-Lock failure rate above 10%"
+              description: "Face-Lock failure rate is {{ $value | humanizePercentage }} for character {{ $labels.character_name }}"
+
+          - alert: RateLimitExceeded
+            expr: increase(ai_video_rate_limit_exceeded_total[5m]) > 10
+            for: 2m
+            labels:
+              severity: warning
+              service: ai-video-fte
+              team: engineering
+            annotations:
+              summary: "Rate limit exceeded frequently"
+              description: "{{ $value }} rate limit exceeded events in 5 minutes. Type: {{ $labels.limit_type }}"
+
+          - alert: HighShotTimeoutRate
+            expr: rate(ai_video_shot_timeouts_total[15m]) / rate(ai_video_shots_dispatched_total[15m]) > 0.05
+            for: 5m
+            labels:
+              severity: warning
+              service: ai-video-fte
+              team: engineering
+            annotations:
+              summary: "High shot timeout rate"
+              description: "{{ $value | humanizePercentage }} of shots are timing out"
+
+          - alert: WebhookUnrecognizedSpike
+            expr: increase(ai_video_webhook_unrecognized_total[5m]) > 20
+            for: 2m
+            labels:
+              severity: warning
+              service: ai-video-fte
+              team: engineering
+            annotations:
+              summary: "Unrecognized webhook spike"
+              description: "{{ $value }} unrecognized webhooks in 5 minutes"
+
+          - alert: WatchdogStuckDispatches
+            expr: ai_video_dispatch_stuck_count > 5
+            for: 5m
+            labels:
+              severity: warning
+              service: ai-video-fte
+              team: engineering
+            annotations:
+              summary: "Watchdog found stuck dispatches"
+              description: "{{ $value }} dispatches stuck for more than 10 minutes"
+
+      - name: ai-video-fte.info
+        interval: 300s
+        rules:
+          - alert: FaceLockCrossShotDrift
+            expr: ai_video_face_lock_cross_shot_drift_detected == 1
+            for: 10m
+            labels:
+              severity: info
+              service: ai-video-fte
+              team: engineering
+            annotations:
+              summary: "Face-Lock cross-shot drift detected"
+              description: "Character {{ $labels.character_name }} shows drift across shots in story {{ $labels.story_id }}"
+
+          - alert: DeliveryPackageExpired
+            expr: ai_video_delivery_packages_expired_total > 0
+            for: 0s
+            labels:
+              severity: info
+              service: ai-video-fte
+              team: engineering
+            annotations:
+              summary: "Delivery package expired"
+              description: "{{ $value }} delivery packages have expired (7-day TTL)"
+
+          - alert: ModelFallbackTriggered
+            expr: increase(ai_video_model_fallbacks_total[1h]) > 0
+            for: 0s
+            labels:
+              severity: info
+              service: ai-video-fte
+              team: engineering
+            annotations:
+              summary: "Model fallback triggered"
+              description: "Fallback from {{ $labels.from_model }} to {{ $labels.to_model }} for shot {{ $labels.shot_id }}"
+
+      - name: infrastructure
+        interval: 60s
+        rules:
+          - alert: HighDatabaseLatency
+            expr: histogram_quantile(0.95, rate(ai_video_db_query_duration_seconds_bucket[5m])) > 1
+            for: 5m
+            labels:
+              severity: warning
+              service: postgresql
+              team: platform
+            annotations:
+              summary: "High database latency (P95 > 1s)"
+              description: "P95 database query latency is {{ $value }}s"
+
+          - alert: HighRedisLatency
+            expr: histogram_quantile(0.95, rate(ai_video_redis_command_duration_seconds_bucket[5m])) > 0.5
+            for: 5m
+            labels:
+              severity: warning
+              service: redis
+              team: platform
+            annotations:
+              summary: "High Redis latency (P95 > 500ms)"
+              description: "P95 Redis command latency is {{ $value }}s"
+
+          - alert: HighVaultLatency
+            expr: histogram_quantile(0.95, rate(ai_video_vault_operation_duration_seconds_bucket[5m])) > 2
+            for: 5m
+            labels:
+              severity: warning
+              service: vault
+              team: platform
+            annotations:
+              summary: "High Vault latency (P95 > 2s)"
+              description: "P95 Vault operation latency is {{ $value }}s"
+
+          - alert: DatabasePoolExhausted
+            expr: ai_video_db_pool_used / ai_video_db_pool_size > 0.9
+            for: 5m
+            labels:
+              severity: warning
+              service: postgresql
+              team: platform
+            annotations:
+              summary: "Database connection pool > 90% used"
+              description: "Pool usage is {{ $value | humanizePercentage }}"
+
+          - alert: HighMergeQueueDepth
+            expr: ai_video_merge_queue_depth > 50
+            for: 5m
+            labels:
+              severity: warning
+              service: ai-video-fte
+              team: platform
+            annotations:
+              summary: "High merge queue depth"
+              description: "Merge queue has {{ $value }} pending jobs"
+
+          - alert: NoStoriesCreated
+            expr: increase(ai_video_stories_created_total[1h]) == 0
+            for: 1h
+            labels:
+              severity: info
+              service: ai-video-fte
+              team: engineering
+            annotations:
+              summary: "No stories created in 1 hour"
+              description: "No new stories created in the last hour - possible frontend issue"

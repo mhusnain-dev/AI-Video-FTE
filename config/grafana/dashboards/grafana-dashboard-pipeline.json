@@ -1,0 +1,166 @@
+{
+  "dashboard": {
+    "title": "AI Video FTE - Story & Shot Pipeline",
+    "uid": "ai-video-fte-pipeline",
+    "tags": ["ai-video-fte", "pipeline", "stories", "shots"],
+    "timezone": "utc",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Story State Distribution",
+        "type": "piechart",
+        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum by (status) (ai_video_stories_created_total)",
+            "legendFormat": "{{status}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "displayLabels": ["value", "percent"]
+        }
+      },
+      {
+        "id": 2,
+        "title": "Active Stories",
+        "type": "stat",
+        "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "ai_video_active_stories_gauge",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 50},
+                {"color": "red", "value": 100}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Active Shots",
+        "type": "stat",
+        "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+        "targets": [
+          {
+            "expr": "ai_video_active_shots_gauge",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 100},
+                {"color": "red", "value": 200}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Stories Created Rate (per min)",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_stories_created_total[5m]) * 60",
+            "legendFormat": "{{status}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps"
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Story Decomposition Latency (P50, P95, P99)",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(ai_video_story_decomposition_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P50",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(ai_video_story_decomposition_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P95",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(ai_video_story_decomposition_duration_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P99",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Shot Plan Revisions",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_shot_plan_revised_total[5m]) * 60",
+            "legendFormat": "{{action}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Characters Registered",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_characters_registered_total[5m]) * 60",
+            "legendFormat": "has_voice={{has_voice}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Sacred Guard Blocks at Character Registry",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_character_sacred_guard_block_total[5m]) * 60",
+            "legendFormat": "{{match_type}}",
+            "refId": "A"
+          }
+        ]
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "10s"
+  }
+}

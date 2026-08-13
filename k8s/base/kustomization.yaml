@@ -1,0 +1,56 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: fte-production
+
+resources:
+  - 00-namespace.yaml
+  - 01-config.yaml
+  - 02-postgres.yaml
+  - 03-redis.yaml
+  - 04-vault.yaml
+  - 05-api.yaml
+  - 06-nginx.yaml
+  - 07-nginx.yaml
+  - 08-frontend.yaml
+  - 09-prometheus.yaml
+  - 10-prometheus.yaml
+  - 11-prometheus-rules.yaml
+  - 12-grafana-config.yaml
+  - 13-grafana.yaml
+  - 14-alertmanager.yaml
+  - 15-alertmanager.yaml
+
+commonLabels:
+  app: ai-video-fte
+  managed-by: kustomize
+
+images:
+  - name: ghcr.io/mhusnain-dev/ai-video-fte/api
+    newTag: latest
+  - name: ghcr.io/mhusnain-dev/ai-video-fte/frontend
+    newTag: latest
+
+configMapGenerator:
+  - name: postgres-migrations
+    files:
+      - migrations/001_extensions.sql
+      - migrations/002_core_tables.sql
+      - migrations/003_admission_sacred.sql
+      - migrations/004_events_cost_dispatch.sql
+      - migrations/005_delivery_observability.sql
+      - migrations/006_consumers.sql
+      - migrations/007_alerts_audit_archives.sql
+      - migrations/008_face_lock.sql
+      - migrations/009_immutable_triggers.sql
+
+secretGenerator:
+  - name: nginx-tls
+    files:
+      - config/nginx-tls/fullchain.pem
+      - config/nginx-tls/privkey.pem
+  - name: vault-tls
+    files:
+      - config/vault-tls/vault.crt
+      - config/vault-tls/vault.key
+      - config/vault-tls/ca.crt

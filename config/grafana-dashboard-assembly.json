@@ -1,0 +1,131 @@
+{
+  "dashboard": {
+    "title": "AI Video FTE - Assembly & Delivery",
+    "uid": "ai-video-fte-assembly",
+    "tags": ["ai-video-fte", "assembly", "delivery", "merge", "subtitles", "partial-regen"],
+    "timezone": "utc",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Merge Duration (P50, P95, P99)",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(ai_video_merge_duration_seconds_bucket[5m])) by (le, resolution))",
+            "legendFormat": "P50 {{resolution}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(ai_video_merge_duration_seconds_bucket[5m])) by (le, resolution))",
+            "legendFormat": "P95 {{resolution}}",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(ai_video_merge_duration_seconds_bucket[5m])) by (le, resolution))",
+            "legendFormat": "P99 {{resolution}}",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {"defaults": {"unit": "s"}}
+      },
+      {
+        "id": 2,
+        "title": "Merge Failures",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_merge_failure_total[5m]) * 60",
+            "legendFormat": "{{story_id}} ({{error_type}})",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Delivery Packages Created",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_delivery_package_created_total[5m]) * 60",
+            "legendFormat": "{{resolution}} {{format}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Delivery Downloads",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_delivery_download_total[5m]) * 60",
+            "legendFormat": "{{resolution}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Partial Regenerations",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_partial_regeneration_total[5m]) * 60",
+            "legendFormat": "{{story_id}} ({{shot_count}} shots)",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Delivery Package Size",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(ai_video_delivery_package_size_bytes_bucket[5m])) by (le, resolution, format))",
+            "legendFormat": "P50 {{resolution}} {{format}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(ai_video_delivery_package_size_bytes_bucket[5m])) by (le, resolution, format))",
+            "legendFormat": "P95 {{resolution}} {{format}}",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {"defaults": {"unit": "bytes"}}
+      },
+      {
+        "id": 7,
+        "title": "Merge Queue Depth",
+        "type": "stat",
+        "gridPos": {"x": 0, "y": 24, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "ai_video_merge_queue_depth_gauge",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 20},
+                {"color": "red", "value": 50}
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "time": {"from": "now-1h", "to": "now"},
+    "refresh": "10s"
+  }
+}

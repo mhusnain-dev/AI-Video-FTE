@@ -1,0 +1,164 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vault
+  namespace: fte-production
+spec:
+  serviceName: vault
+  replicas: 3
+  selector:
+    matchLabels:
+      app: vault
+  template:
+    metadata:
+      labels:
+        app: vault
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8200"
+        prometheus.io/path: "/v1/sys/metrics"
+    spec:
+      serviceAccountName: vault
+      containers:
+        - name: vault
+          image: hashicorp/vault:1.15
+          ports:
+            - containerPort: 8200
+              name: http
+            - containerPort: 8201
+              name: cluster
+          env:
+            - name: VAULT_ADDR
+              value: "https://vault:8200"
+            - name: VAULT_API_ADDR
+              value: "https://vault:8200"
+            - name: VAULT_CLUSTER_ADDR
+              value: "https://vault:8201"
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ai-video-fte-secrets
+                  key: VAULT_TOKEN
+          volumeMounts:
+            - name: vault-data
+              mountPath: /vault/data
+            - name: vault-config
+              mountPath: /vault/config
+            - name: vault-tls
+              mountPath: /vault/tls
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          livenessProbe:
+            exec:
+              command: ["vault", "status", "-tls-skip-verify"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["vault", "status", "-tls-skip-verify"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: vault-config
+          configMap:
+            name: vault-config
+        - name: vault-tls
+          secret:
+            secretName: vault-tls
+  volumeClaimTemplates:
+    - metadata:
+        name: vault-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault
+  namespace: fte-production
+spec:
+  ports:
+    - port: 8200
+      targetPort: 8200
+      name: http
+    - port: 8201
+      targetPort: 8201
+      name: cluster
+  selector:
+    app: vault
+  clusterIP: None
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-config
+  namespace: fte-production
+data:
+  vault.hcl: |
+    storage "raft" {
+      path    = "/vault/data"
+      node_id = "fte-vault-1"
+    }
+
+    listener "tcp" {
+      address       = "0.0.0.0:8200"
+      cluster_address = "0.0.0.0:8201"
+      tls_cert_file = "/vault/tls/vault.crt"
+      tls_key_file  = "/vault/tls/vault.key"
+      tls_client_ca_file = "/vault/tls/ca.crt"
+      http2 = true
+    }
+
+    telemetry {
+      prometheus_retention_time = "30s"
+      disable_hostname = true
+    }
+
+    audit "file" {
+      path = "/vault/logs/audit.log"
+      mode = "0644"
+    }
+
+    disable_mlock = false
+    default_lease_ttl = "768h"
+    max_lease_ttl = "8760h"
+    cluster_name = "ai-video-fte"
+    api_addr = "https://vault:8200"
+    cluster_addr = "https://vault:8201"
+    ui = true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault
+  namespace: fte-production
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vault
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vault
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vault
+subjects:
+  - kind: ServiceAccount
+    name: vault
+    namespace: fte-production

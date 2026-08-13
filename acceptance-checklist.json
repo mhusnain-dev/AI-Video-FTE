@@ -1,0 +1,202 @@
+{
+  "evidence_examined": [
+    "scripts/validate-deployment.sh (lines 132-179)",
+    "docker-compose.prod.yaml",
+    "config/nginx.conf",
+    "scripts/validate-deployment.sh check_health_endpoint() function (lines 45-57)"
+  ],
+  "acceptance_checklist": [
+    {
+      "service": "docker_compose_stack",
+      "check": "All services running",
+      "command": "docker compose -f docker-compose.prod.yaml ps",
+      "pass_criteria": "Command executes without error; all 9 services listed",
+      "criticality": "required"
+    },
+    {
+      "service": "postgres",
+      "check": "Container health check passes",
+      "command": "docker compose -f docker-compose.prod.yaml ps --format json postgres | jq -r '.[0].Health // \"none\"'",
+      "pass_criteria": "Health status is 'healthy' OR 'none' (no healthcheck defined)",
+      "criticality": "required"
+    },
+    {
+      "service": "redis",
+      "check": "Container health check passes",
+      "command": "docker compose -f docker-compose.prod.yaml ps --format json redis | jq -r '.[0].Health // \"none\"'",
+      "pass_criteria": "Health status is 'healthy' OR 'none'",
+      "criticality": "required"
+    },
+    {
+      "service": "vault",
+      "check": "Container health check passes",
+      "command": "docker compose -f docker-compose.prod.yaml ps --format json vault | jq -r '.[0].Health // \"none\"'",
+      "pass_criteria": "Health status is 'healthy' OR 'none'",
+      "criticality": "required"
+    },
+    {
+      "service": "api",
+      "check": "Container health check passes",
+      "command": "docker compose -f docker-compose.prod.yaml ps --format json api | jq -r '.[0].Health // \"none\"'",
+      "pass_criteria": "Health status is 'healthy' OR 'none'",
+      "criticality": "required"
+    },
+    {
+      "service": "nginx",
+      "check": "Container health check passes",
+      "command": "docker compose -f docker-compose.prod.yaml ps --format json nginx | jq -r '.[0].Health // \"none\"'",
+      "pass_criteria": "Health status is 'healthy' OR 'none'",
+      "criticality": "required"
+    },
+    {
+      "service": "frontend",
+      "check": "Container health check passes",
+      "command": "docker compose -f docker-compose.prod.yaml ps --format json frontend | jq -r '.[0].Health // \"none\"'",
+      "pass_criteria": "Health status is 'healthy' OR 'none'",
+      "criticality": "required"
+    },
+    {
+      "service": "prometheus",
+      "check": "Container health check passes",
+      "command": "docker compose -f docker-compose.prod.yaml ps --format json prometheus | jq -r '.[0].Health // \"none\"'",
+      "pass_criteria": "Health status is 'healthy' OR 'none'",
+      "criticality": "required"
+    },
+    {
+      "service": "grafana",
+      "check": "Container health check passes",
+      "command": "docker compose -f docker-compose.prod.yaml ps --format json grafana | jq -r '.[0].Health // \"none\"'",
+      "pass_criteria": "Health status is 'healthy' OR 'none'",
+      "criticality": "required"
+    },
+    {
+      "service": "alertmanager",
+      "check": "Container health check passes",
+      "command": "docker compose -f docker-compose.prod.yaml ps --format json alertmanager | jq -r '.[0].Health // \"none\"'",
+      "pass_criteria": "Health status is 'healthy' OR 'none'",
+      "criticality": "required"
+    },
+    {
+      "service": "api (via nginx)",
+      "check": "HTTP health endpoint returns healthy status",
+      "command": "curl -sf http://localhost/health | jq -e '.status == \"healthy\"'",
+      "pass_criteria": "HTTP 200 with JSON body containing { \"status\": \"healthy\" }",
+      "protocol": "HTTP",
+      "port": "80 (nginx) -> 3000 (api)",
+      "criticality": "required"
+    },
+    {
+      "service": "prometheus",
+      "check": "Prometheus health endpoint accessible",
+      "command": "curl -sf http://localhost:9091/-/healthy",
+      "pass_criteria": "HTTP 200 OK",
+      "protocol": "HTTP",
+      "port": "9091 (host) -> 9090 (container)",
+      "criticality": "required"
+    },
+    {
+      "service": "grafana",
+      "check": "Grafana health endpoint returns database ok",
+      "command": "curl -sf http://localhost:3001/api/health | jq -e '.database == \"ok\"'",
+      "pass_criteria": "HTTP 200 with JSON body containing { \"database\": \"ok\" }",
+      "protocol": "HTTP",
+      "port": "3001 (host) -> 3000 (container)",
+      "criticality": "required"
+    },
+    {
+      "service": "alertmanager",
+      "check": "Alertmanager health endpoint accessible",
+      "command": "curl -sf http://localhost:9093/-/healthy",
+      "pass_criteria": "HTTP 200 OK",
+      "protocol": "HTTP",
+      "port": "9093 (host) -> 9093 (container)",
+      "criticality": "required"
+    },
+    {
+      "service": "api (via nginx metrics)",
+      "check": "Metrics endpoint accessible via nginx",
+      "command": "curl -sf http://localhost/metrics",
+      "pass_criteria": "HTTP 200 OK (warn-only if fails)",
+      "protocol": "HTTP",
+      "port": "80 (nginx) -> 3000 (api)",
+      "criticality": "warn"
+    },
+    {
+      "service": "postgres",
+      "check": "Database connection test via pg_isready",
+      "command": "docker compose -f docker-compose.prod.yaml exec -T postgres pg_isready -U postgres -d ai_video_fte",
+      "pass_criteria": "pg_isready returns success (exit code 0)",
+      "protocol": "PostgreSQL wire protocol",
+      "port": "5432 (internal)",
+      "criticality": "required"
+    },
+    {
+      "service": "redis",
+      "check": "Redis ping with authentication",
+      "command": "docker compose -f docker-compose.prod.yaml exec -T redis redis-cli -a \"$(cat secrets/redis_password.txt)\" ping | grep -q PONG",
+      "pass_criteria": "Response contains 'PONG'",
+      "protocol": "Redis protocol (RESP)",
+      "port": "6379 (internal)",
+      "criticality": "required"
+    },
+    {
+      "service": "vault",
+      "check": "Vault status check",
+      "command": "docker compose -f docker-compose.prod.yaml exec -T vault vault status -tls-skip-verify | grep -q \"Sealed\\|Initialized\"",
+      "pass_criteria": "Output contains either 'Sealed' or 'Initialized'",
+      "protocol": "HTTP (Vault API)",
+      "port": "8200 (internal)",
+      "criticality": "required"
+    }
+  ],
+  "findings": {
+    "health_check_timeout": "Each service health check waits up to 60 iterations × 5 seconds = 300 seconds (5 minutes) max per service",
+    "nginx_routing": "nginx listens on ports 80/443; /health and /metrics proxy to api_backend (api:3000); /metrics restricted to private IPs (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)",
+    "prometheus_port_mapping": "docker-compose.prod.yaml maps 9091:9090 but validation script curls localhost:9091 — CONSISTENT",
+    "grafana_port_mapping": "docker-compose.prod.yaml maps 3001:3000 but validation script curls localhost:3001 — CONSISTENT",
+    "alertmanager_port_mapping": "docker-compose.prod.yaml maps 9093:9093 but validation script curls localhost:9093 — CONSISTENT",
+    "api_direct_port_not_validated": "API port 3000/9090 is exposed in docker-compose but NOT directly validated — only via nginx on port 80",
+    "frontend_not_directly_validated": "Frontend service has no explicit health check in validation; only proxied via nginx / route",
+    "redis_password_source": "Redis password read from secrets/redis_password.txt — must exist for validation to pass",
+    "vault_tls_skip_verify": "Vault health check uses -tls-skip-verify flag, bypassing TLS verification",
+    "metrics_endpoint_warn_only": "Metrics endpoint check uses 'warn' not 'error' — failure does not block validation",
+    "health_check_accepts_none": "Services without healthcheck defined in docker-compose (nginx, frontend, prometheus, grafana, alertmanager) pass if Health='none'"
+  },
+  "contradictions": [
+    {
+      "description": "nginx config restricts /metrics to private IPs only (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), but validation script curls localhost (127.0.0.1) which is NOT in allowed ranges",
+      "impact": "Metrics endpoint check will always fail with 403 Forbidden unless running from allowed subnet; currently warn-only so validation passes but metrics inaccessible",
+      "location": "config/nginx.conf lines 171-178 vs scripts/validate-deployment.sh line 166"
+    },
+    {
+      "description": "docker-compose.prod.yaml does not define healthcheck for nginx, frontend, prometheus, grafana, alertmanager — validation accepts 'none' as healthy",
+      "impact": "These 5 services pass health check wait loop without actually verifying service readiness",
+      "location": "docker-compose.prod.yaml vs scripts/validate-deployment.sh lines 143-148"
+    }
+  ],
+  "required_conditions": [
+    "docker-compose.prod.yaml must be present and valid",
+    "secrets/redis_password.txt must exist and contain valid Redis password",
+    "secrets/postgres_password.txt must exist (referenced in docker-compose secrets)",
+    "PostgreSQL database 'ai_video_fte' must exist (created by migrations)",
+    "Vault must be initialized and unsealed (or at least show 'Sealed' status)",
+    "nginx TLS certificates must exist at ./config/nginx-tls/ for HTTPS (though health check uses HTTP port 80)",
+    "Network 'fte-network' must be created by docker compose",
+    "All 9 services must start successfully (postgres, redis, vault, api, nginx, frontend, prometheus, grafana, alertmanager)",
+    "API must expose /health endpoint returning {\"status\": \"healthy\"}",
+    "Prometheus must expose /-/healthy on port 9090",
+    "Grafana must expose /api/health returning {\"database\": \"ok\"} on port 3000",
+    "Alertmanager must expose /-/healthy on port 9093"
+  ],
+  "risks_unknowns": [
+    "API service has no healthcheck defined in docker-compose — relies on depends_on chain; actual API readiness not verified until nginx health check",
+    "Frontend service has no healthcheck and no direct validation — only implicitly tested via nginx / route",
+    "Metrics endpoint validation will always warn due to nginx IP restrictions unless run from allowed subnet",
+    "Vault validation only checks status command succeeds — does not verify Vault is unsealed and operational (Sealed still passes)",
+    "Redis validation requires secrets/redis_password.txt to be readable — permission issues could cause false failures",
+    "No validation of API /ready endpoint (defined in nginx but not checked)",
+    "No validation of actual API functionality beyond /health",
+    "No validation of frontend serving static assets correctly"
+  ],
+  "confidence": 90
+}

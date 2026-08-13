@@ -1,0 +1,333 @@
+# Prometheus Alerting Rules for AI Video FTE
+# Generated from integration map Section 11 (Alert Inventory)
+# Maps to AlertEvaluatorConsumer's 14 built-in rules
+# Apply to Prometheus via: prometheus.yml rule_files: ['prometheus-alerts.yml']
+
+groups:
+  # ============================================================================
+  # CRITICAL ALERTS (Page Immediately - PagerDuty)
+  # ============================================================================
+  - name: ai-video-fte.critical
+    interval: 30s
+    rules:
+
+    # Sacred Guard block at any enforcement point
+    - alert: SacredGuardBlock
+      expr: |
+        increase(ai_video_sacred_guard_block_total[5m]) > 0
+      for: 1m
+      labels:
+        severity: critical
+        runbook: sacred-guard-block
+      annotations:
+        summary: "Sacred Guard block detected"
+        description: |
+          Sacred Guard blocked a shot at enforcement point {{ $labels.enforcement_point }}
+          Match type: {{ $labels.match_type }}
+          Model: {{ $labels.model_id }}
+        runbook_url: "https://runbooks.ai-video-fte.com/sacred-guard-block"
+
+    # Video merge failure for a story
+    - alert: MergeFailure
+      expr: |
+        increase(ai_video_merge_failure_total[5m]) > 0
+      for: 1m
+      labels:
+        severity: critical
+        runbook: merge-failure
+      annotations:
+        summary: "Video merge failed"
+        description: |
+          Merge failed for story {{ $labels.story_id }}
+          Error type: {{ $labels.error_type }}
+        runbook_url: "https://runbooks.ai-video-fte.com/merge-failure"
+
+    # All models failed for a shot
+    - alert: AllModelsFailedForShot
+      expr: |
+        increase(ai_video_shot_dispatch_total{status="failed"}[5m]) > 0
+        and
+        increase(ai_video_shot_dispatch_total{model_id=~".+"}[5m])
+          == increase(ai_video_shot_dispatch_total{status="failed"}[5m])
+      for: 1m
+      labels:
+        severity: critical
+        runbook: all-models-failed
+      annotations:
+        summary: "All models failed for a shot"
+        description: |
+          All available models failed for shot dispatch
+          Check model health and provider status
+        runbook_url: "https://runbooks.ai-video-fte.com/all-models-failed"
+
+    # Database unavailable (using health metrics)
+    - alert: DatabaseUnavailable
+      expr: |
+        ai_video_db_pool_usage_gauge == 0
+        or
+        ai_video_vault_status_gauge == 0
+      for: 1m
+      labels:
+        severity: critical
+        runbook: db-down
+      annotations:
+        summary: "Database connection unavailable"
+        description: "Database pool exhausted or Vault unavailable"
+        runbook_url: "https://runbooks.ai-video-fte.com/db-down"
+
+    # Vault unavailable
+    - alert: VaultUnavailable
+      expr: |
+        ai_video_vault_status_gauge == 0
+      for: 1m
+      labels:
+        severity: critical
+        runbook: vault-down
+      annotations:
+        summary: "Vault connection unavailable"
+        description: "Vault Transit encryption/decryption unavailable"
+        runbook_url: "https://runbooks.ai-video-fte.com/vault-down"
+
+  # ============================================================================
+  # WARNING ALERTS (Ticket + Notify)
+  # ============================================================================
+  - name: ai-video-fte.warning
+    interval: 60s
+    rules:
+
+    # Cost drift exceeded 20%
+    - alert: CostDriftHigh
+      expr: |
+        ai_video_cost_drift_percentage_gauge > 20
+      for: 5m
+      labels:
+        severity: warning
+        runbook: cost-drift
+      annotations:
+        summary: "Cost drift percentage exceeded 20%"
+        description: |
+          Cost drift is at {{ $value }}% - exceeds 20% threshold
+          Check for runaway generation or pricing changes
+        runbook_url: "https://runbooks.ai-video-fte.com/cost-drift"
+
+    # Face-Lock failure rate > 20% over 5min
+    - alert: FaceLockFailureRateHigh
+      expr: |
+        (
+          sum(rate(ai_video_facelock_verification_total{result="failed"}[5m])) by (character_name, model_id)
+          /
+          sum(rate(ai_video_facelock_verification_total[5m])) by (character_name, model_id)
+        ) > 0.2
+      for: 5m
+      labels:
+        severity: warning
+        runbook: facelock-failures
+      annotations:
+        summary: "Face-Lock failure rate exceeded 20%"
+        description: |
+          Face-Lock failure rate is {{ $value | humanizePercentage }} for {{ $labels.character_name }} on {{ $labels.model_id }}
+          Check reference image quality or model compatibility
+        runbook_url: "https://runbooks.ai-video-fte.com/facelock-failures"
+
+    # Rate limit gate blocked multiple requests
+    - alert: RateLimitExceeded
+      expr: |
+        increase(ai_video_rate_limit_exceeded_total[5m]) > 10
+      for: 5m
+      labels:
+        severity: warning
+        runbook: rate-limit
+      annotations:
+        summary: "Rate limit gate blocked multiple requests"
+        description: |
+          {{ $value }} rate limit violations in last 5 minutes
+          Scope: {{ $labels.scope }}, Model: {{ $labels.model_id }}
+        runbook_url: "https://runbooks.ai-video-fte.com/rate-limit"
+
+    # High shot timeout rate
+    - alert: HighShotTimeoutRate
+      expr: |
+        sum(rate(ai_video_shot_timeout_total[5m])) by (model_id)
+        /
+        sum(rate(ai_video_shot_dispatch_total[5m])) by (model_id)
+        > 0.1
+      for: 5m
+      labels:
+        severity: warning
+        runbook: shot-timeouts
+      annotations:
+        summary: "High shot timeout rate detected"
+        description: |
+          Timeout rate is {{ $value | humanizePercentage }} for model {{ $labels.model_id }}
+          Check model provider SLA and timeout configuration
+        runbook_url: "https://runbooks.ai-video-fte.com/shot-timeouts"
+
+    # Spike in unrecognized webhooks
+    - alert: WebhookUnrecognizedSpike
+      expr: |
+        increase(ai_video_webhook_unrecognized_total[5m]) > 10
+      for: 5m
+      labels:
+        severity: warning
+        runbook: webhook-unrecognized
+      annotations:
+        summary: "Spike in unrecognized webhooks"
+        description: |
+          {{ $value }} unrecognized webhooks received in last 5 minutes
+          Provider: {{ $labels.provider }}
+          Possible provider API change or misconfiguration
+        runbook_url: "https://runbooks.ai-video-fte.com/webhook-unrecognized"
+
+    # Watchdog detected stuck dispatches
+    - alert: WatchdogStuckDispatches
+      expr: |
+        ai_video_watchdog_stuck_dispatches_gauge > 10
+      for: 5m
+      labels:
+        severity: warning
+        runbook: watchdog-stuck
+      annotations:
+        summary: "Watchdog detected stuck dispatches"
+        description: |
+          {{ $value }} stuck dispatches detected for model {{ $labels.model_id }}
+          Status: {{ $labels.status }}
+          Manual intervention may be required
+        runbook_url: "https://runbooks.ai-video-fte.com/watchdog-stuck"
+
+  # ============================================================================
+  # INFO ALERTS (Log Only)
+  # ============================================================================
+  - name: ai-video-fte.info
+    interval: 300s
+    rules:
+
+    # Cross-shot drift detected in Face-Lock consistency report
+    - alert: FaceLockCrossShotDrift
+      expr: |
+        increase(ai_video_facelock_cross_shot_drift_detected_total[1h]) > 0
+      for: 1m
+      labels:
+        severity: info
+      annotations:
+        summary: "Cross-shot drift detected in Face-Lock consistency report"
+        description: |
+          Cross-shot consistency report detected drift for character {{ $labels.character_name }} in story {{ $labels.story_id }}
+          Review character reference images or model consistency
+        runbook_url: "https://runbooks.ai-video-fte.com/facelock-cross-shot-drift"
+
+    # Delivery package expired without download
+    - alert: DeliveryPackageExpired
+      expr: |
+        increase(ai_video_delivery_package_created_total[1h]) > 0
+        and
+        increase(ai_video_delivery_download_total[7d]) == 0
+      for: 1h
+      labels:
+        severity: info
+      annotations:
+        summary: "Delivery package expired without download"
+        description: |
+          Delivery package for story created but never downloaded
+          May indicate delivery notification failure
+        runbook_url: "https://runbooks.ai-video-fte.com/delivery-package-expired"
+
+    # Model fallback triggered
+    - alert: ModelFallbackTriggered
+      expr: |
+        increase(ai_video_shot_fallback_total[1h]) > 0
+      for: 1m
+      labels:
+        severity: info
+      annotations:
+        summary: "Model fallback triggered"
+        description: |
+          Fallback from {{ $labels.from_model }} to {{ $labels.to_model }} triggered
+          Reason: {{ $labels.trigger }}
+          Monitor for pattern indicating primary model issues
+        runbook_url: "https://runbooks.ai-video-fte.com/model-fallback"
+
+  # ============================================================================
+  # INFRASTRUCTURE ALERTS
+  # ============================================================================
+  - name: ai-video-fte.infrastructure
+    interval: 60s
+    rules:
+
+    # High database query latency
+    - alert: HighDatabaseLatency
+      expr: |
+        histogram_quantile(0.99, sum(rate(ai_video_db_query_duration_seconds_bucket[5m])) by (le, operation)) > 5
+      for: 5m
+      labels:
+        severity: warning
+        runbook: db-latency
+      annotations:
+        summary: "High database query latency (P99 > 5s)"
+        description: "Database operation {{ $labels.operation }} P99 latency is {{ $value }}s"
+        runbook_url: "https://runbooks.ai-video-fte.com/db-latency"
+
+    # High Redis command latency
+    - alert: HighRedisLatency
+      expr: |
+        histogram_quantile(0.99, sum(rate(ai_video_redis_command_duration_seconds_bucket[5m])) by (le, command)) > 1
+      for: 5m
+      labels:
+        severity: warning
+        runbook: redis-latency
+      annotations:
+        summary: "High Redis command latency (P99 > 1s)"
+        description: "Redis command {{ $labels.command }} P99 latency is {{ $value }}s"
+        runbook_url: "https://runbooks.ai-video-fte.com/redis-latency"
+
+    # High Vault encrypt/decrypt latency
+    - alert: HighVaultLatency
+      expr: |
+        histogram_quantile(0.99, sum(rate(ai_video_vault_encrypt_duration_seconds_bucket[5m])) by (le)) > 2
+        or
+        histogram_quantile(0.99, sum(rate(ai_video_vault_decrypt_duration_seconds_bucket[5m])) by (le)) > 2
+      for: 5m
+      labels:
+        severity: warning
+        runbook: vault-latency
+      annotations:
+        summary: "High Vault latency (P99 > 2s)"
+        description: "Vault encrypt/decrypt P99 latency is {{ $value }}s"
+        runbook_url: "https://runbooks.ai-video-fte.com/vault-latency"
+
+    # Database pool exhaustion
+    - alert: DatabasePoolExhausted
+      expr: |
+        ai_video_db_pool_usage_gauge > 0.9
+      for: 5m
+      labels:
+        severity: warning
+        runbook: db-pool-exhausted
+      annotations:
+        summary: "Database connection pool > 90% utilized"
+        description: "Pool usage is {{ $value | humanizePercentage }}"
+        runbook_url: "https://runbooks.ai-video-fte.com/db-pool-exhausted"
+
+    # High merge queue depth
+    - alert: HighMergeQueueDepth
+      expr: |
+        ai_video_merge_queue_depth_gauge > 50
+      for: 10m
+      labels:
+        severity: warning
+        runbook: merge-queue-backlog
+      annotations:
+        summary: "High merge queue depth ({{ $value }} pending)"
+        description: "Merge queue has {{ $value }} pending jobs for > 10 minutes"
+        runbook_url: "https://runbooks.ai-video-fte.com/merge-queue-backlog"
+
+    # No stories created in 1 hour (potential ingestion issue)
+    - alert: NoStoriesCreated
+      expr: |
+        increase(ai_video_stories_created_total[1h]) == 0
+      for: 1h
+      labels:
+        severity: info
+      annotations:
+        summary: "No stories created in the last hour"
+        description: "Story ingestion pipeline may be stalled"
+        runbook_url: "https://runbooks.ai-video-fte.com/no-stories-created"

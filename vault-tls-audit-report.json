@@ -1,0 +1,127 @@
+{
+  "evidence_examined": [
+    "config/vault.hcl (full content)",
+    "docker-compose.prod.yaml vault service (environment, volumes, healthcheck, ports)",
+    "config/vault-tls/ directory contents (empty)",
+    "scripts/setup-secrets.sh (TLS cert generation section lines 115-120)",
+    "docker-compose.prod.yaml VAULT_ADDR, VAULT_API_ADDR, VAULT_CLUSTER_ADDR (lines 59-61)",
+    "scripts/validate-deployment.sh Vault check (line 178: vault status -tls-skip-verify)",
+    "config/nginx.conf (for any vault upstream config - none found)"
+  ],
+  "findings": {
+    "vault_listener_config": {
+      "address": "0.0.0.0:8200",
+      "cluster_address": "0.0.0.0:8201",
+      "tls_disable": true,
+      "api_addr": "https://vault:8200",
+      "cluster_addr": "https://vault:8201"
+    },
+    "docker_compose_environment": {
+      "VAULT_ADDR": "https://vault:8200",
+      "VAULT_API_ADDR": "https://vault:8200",
+      "VAULT_CLUSTER_ADDR": "https://vault:8201"
+    },
+    "docker_compose_ports": ["8200:8200", "8201:8201"],
+    "docker_compose_volumes": [
+      "./config/vault.hcl:/vault/config/vault.hcl:ro",
+      "./config/vault-tls:/vault/tls:ro"
+    ],
+    "docker_compose_healthcheck": "vault status -tls-skip-verify",
+    "tls_certificate_state": {
+      "config/vault-tls/": "EMPTY - no certificates present",
+      "config/nginx-tls/": "EMPTY - no certificates present",
+      "setup_secrets_sh_instruction": "User must generate: config/vault-tls/vault.crt + vault.key + ca.crt"
+    },
+    "nginx_upstream_for_vault": "NONE - nginx.conf has no upstream or proxy config for Vault"
+  },
+  "contradictions": [
+    {
+      "id": "C1",
+      "category": "Listener TLS vs api_addr/cluster_addr",
+      "description": "vault.hcl listener has tls_disable=true (HTTP), but api_addr and cluster_addr specify https:// scheme",
+      "files": ["config/vault.hcl lines 14, 43-44"],
+      "severity": "CRITICAL"
+    },
+    {
+      "id": "C2",
+      "category": "Listener TLS vs Docker Compose Environment",
+      "description": "vault.hcl listener is HTTP (tls_disable=true), but VAULT_ADDR/VAULT_API_ADDR/VAULT_CLUSTER_ADDR env vars all use https:// scheme",
+      "files": ["config/vault.hcl line 14", "docker-compose.prod.yaml lines 59-61"],
+      "severity": "CRITICAL"
+    },
+    {
+      "id": "C3",
+      "category": "Listener TLS vs Healthcheck",
+      "description": "Healthcheck uses 'vault status -tls-skip-verify' which implies HTTPS is expected (the flag is only needed for HTTPS with self-signed certs), but listener is HTTP",
+      "files": ["docker-compose.prod.yaml line 73", "config/vault.hcl line 14"],
+      "severity": "HIGH"
+    },
+    {
+      "id": "C4",
+      "category": "TLS Volume Mount vs Certificate State",
+      "description": "docker-compose mounts ./config/vault-tls:/vault/tls:ro but the directory is empty - Vault would fail to start if TLS were actually enabled",
+      "files": ["docker-compose.prod.yaml line 71", "config/vault-tls/ directory listing"],
+      "severity": "HIGH"
+    },
+    {
+      "id": "C5",
+      "category": "API Service VAULT_ADDR vs Vault Listener",
+      "description": "api service environment sets VAULT_ADDR=https://vault:8200, but Vault listener is HTTP on 8200 - API cannot connect via HTTPS",
+      "files": ["docker-compose.prod.yaml line 103", "config/vault.hcl line 12"],
+      "severity": "CRITICAL"
+    },
+    {
+      "id": "C6",
+      "category": "Production Intent Ambiguity",
+      "description": "Config says 'Production Configuration' but uses tls_disable=true (insecure HTTP). setup-secrets.sh instructs user to generate TLS certs for vault-tls/, implying HTTPS intent. These are mutually exclusive states.",
+      "files": ["config/vault.hcl line 1", "config/vault.hcl line 14", "scripts/setup-secrets.sh lines 115-120"],
+      "severity": "CRITICAL"
+    }
+  ],
+  "required_conditions": [
+    {
+      "condition": "If production intent is HTTPS: vault.hcl must have tls_disable=false, tls_cert_file and tls_key_file pointing to /vault/tls/vault.crt and /vault/tls/vault.key, and certs must exist in config/vault-tls/",
+      "references": ["config/vault.hcl", "docker-compose.prod.yaml line 71"]
+    },
+    {
+      "condition": "If production intent is HTTP: vault.hcl api_addr and cluster_addr must use http:// scheme, docker-compose env vars must use http://, api service VAULT_ADDR must use http://, healthcheck must NOT use -tls-skip-verify",
+      "references": ["config/vault.hcl lines 43-44", "docker-compose.prod.yaml lines 59-61, 103, 73"]
+    },
+    {
+      "condition": "Certificate files must exist in config/vault-tls/ before deployment if HTTPS is intended",
+      "references": ["config/vault-tls/ directory", "scripts/setup-secrets.sh lines 115-120"]
+    },
+    {
+      "condition": "nginx.conf has no Vault upstream - if external access to Vault is needed, nginx upstream and server block must be added",
+      "references": ["config/nginx.conf"]
+    }
+  ],
+  "risks_unknowns": [
+    {
+      "risk": "Vault may fail to start if TLS is enabled but certificates are missing from mounted volume",
+      "likelihood": "HIGH",
+      "impact": "Service unavailable"
+    },
+    {
+      "risk": "API service will fail to connect to Vault (connection refused or TLS handshake failure) due to scheme mismatch",
+      "likelihood": "CERTAIN",
+      "impact": "API cannot access secrets/transit key"
+    },
+    {
+      "risk": "Healthcheck uses -tls-skip-verify which bypasses certificate validation - if TLS is enabled with self-signed certs, this works but is insecure; if TLS is disabled, the flag is unnecessary but harmless",
+      "likelihood": "MEDIUM",
+      "impact": "False health status or security degradation"
+    },
+    {
+      "risk": "Cluster communication (port 8201) also has scheme mismatch - cluster_addr is https but listener is HTTP",
+      "likelihood": "CERTAIN",
+      "impact": "Raft clustering will fail in multi-node setup"
+    },
+    {
+      "risk": "No documentation/spec clarifies whether production Vault should be HTTP or HTTPS - this is a fundamental architecture decision",
+      "likelihood": "HIGH",
+      "impact": "Cannot determine correct fix without human decision"
+    }
+  ],
+  "confidence": 95
+}

@@ -1,0 +1,186 @@
+{
+  "evidence_examined": [
+    "docker-compose.prod.yaml",
+    "docker-compose.yaml",
+    "config/vault.hcl",
+    "scripts/setup-secrets.sh",
+    "config/nginx.conf",
+    ".gitignore",
+    "secrets/ directory contents",
+    "config/vault-tls/",
+    "config/nginx-tls/"
+  ],
+  "findings": {
+    "critical": [
+      {
+        "id": "VAULT-TLS-DISABLED",
+        "title": "Vault TLS completely disabled in production configuration",
+        "evidence": "config/vault.hcl line 14: tls_disable = true",
+        "impact": "All Vault traffic (including root tokens, encryption keys, biometric data encryption keys) transmitted in cleartext on network. VAULT_ADDR set to https:// but TLS disabled - creates false sense of security.",
+        "production_risk": "CRITICAL - Secrets exposed on container network; if network compromised, all secrets leaked"
+      },
+      {
+        "id": "SECRETS-DIR-NOT-GITIGNORED",
+        "title": "secrets/ directory not in .gitignore - real secrets committed risk",
+        "evidence": ".gitignore lacks 'secrets/' entry; git status shows secrets/ as untracked",
+        "impact": "Generated production passwords (postgres, redis, vault_token, grafana) and placeholder API keys could be accidentally committed. Currently: postgres_password, redis_password, vault_token, grafana_password are REAL generated values.",
+        "production_risk": "HIGH - If committed, all production credentials leaked to git history"
+      },
+      {
+        "id": "VAULT-DEV-MODE-IN-DEV-COMPOSE",
+        "title": "Vault running in dev mode with static root token in docker-compose.yaml",
+        "evidence": "docker-compose.yaml lines 43-44: VAULT_DEV_ROOT_TOKEN_ID: root, VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200",
+        "impact": "Dev mode uses in-memory storage, no seal/unseal, static root token 'root'. This pattern could leak to prod if compose files confused.",
+        "production_risk": "MEDIUM - Dev workaround that should never reach production"
+      }
+    ],
+    "high": [
+      {
+        "id": "EMPTY-TLS-CERT-DIRECTORIES",
+        "title": "Both vault-tls/ and nginx-tls/ directories are empty",
+        "evidence": "ls -la shows both directories exist but contain zero certificate files",
+        "impact": "docker-compose.prod.yaml mounts ./config/vault-tls:/vault/tls:ro and ./config/nginx-tls:/etc/nginx/tls:ro - containers will fail to start or fail TLS handshake. Vault healthcheck uses -tls-skip-verify masking the issue.",
+        "production_risk": "HIGH - Production deployment will fail or run without TLS despite https:// config"
+      },
+      {
+        "id": "POSTGRES-PORT-EXPOSED",
+        "title": "PostgreSQL port 5432 exposed to host in production",
+        "evidence": "docker-compose.prod.yaml line 12: - \"5432:5432\"",
+        "impact": "Database directly accessible from host network. Should only be accessible within docker network.",
+        "production_risk": "HIGH - Unnecessary attack surface; credentials in env vars but network exposure remains"
+      },
+      {
+        "id": "REDIS-PORT-EXPOSED",
+        "title": "Redis port 6379 exposed to host in production",
+        "evidence": "docker-compose.prod.yaml line 37: - \"6379:6379\"",
+        "impact": "Redis directly accessible from host. Password protected but unnecessary exposure.",
+        "production_risk": "HIGH - Unnecessary attack surface"
+      },
+      {
+        "id": "VAULT-PORTS-EXPOSED",
+        "title": "Vault ports 8200/8201 exposed to host in production",
+        "evidence": "docker-compose.prod.yaml lines 63-64: - \"8200:8200\", - \"8201:8201\"",
+        "impact": "Vault API and cluster ports exposed to host. Combined with tls_disable=true, this is severe.",
+        "production_risk": "CRITICAL - Vault API exposed without TLS to host network"
+      },
+      {
+        "id": "PROMETHEUS-GRAFANA-ALERTMANAGER-PORTS-EXPOSED",
+        "title": "Monitoring stack ports exposed to host (9091, 3001, 9093)",
+        "evidence": "docker-compose.prod.yaml lines 187, 211, 238",
+        "impact": "Prometheus, Grafana, Alertmanager accessible from host. Grafana has file-based password but no IP restriction.",
+        "production_risk": "MEDIUM - Monitoring interfaces should be behind VPN/auth proxy"
+      },
+      {
+        "id": "API-PORTS-EXPOSED",
+        "title": "API ports 3000 and 9090 exposed to host directly",
+        "evidence": "docker-compose.prod.yaml lines 115-116: - \"3000:3000\", - \"9090:9090\"",
+        "impact": "API bypasses nginx TLS termination and rate limiting. Metrics endpoint (9090) exposed.",
+        "production_risk": "HIGH - Bypasses all nginx security controls (rate limiting, auth, TLS)"
+      }
+    ],
+    "medium": [
+      {
+        "id": "NGINX-CSP-UNSAFE-INLINE",
+        "title": "nginx CSP allows unsafe-inline and unsafe-eval for scripts",
+        "evidence": "config/nginx.conf line 139: script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+        "impact": "Weakens XSS protection. Should use nonces or hashes instead.",
+        "production_risk": "MEDIUM - Reduces effectiveness of CSP"
+      },
+      {
+        "id": "VAULT-AUDIT-LOG-PERMISSIONS",
+        "title": "Vault audit log mode 0644 - readable by all container users",
+        "evidence": "config/vault.hcl line 27: mode = \"0644\"",
+        "impact": "Audit logs may contain sensitive access patterns. Should be 0600 or 0640.",
+        "production_risk": "LOW-MEDIUM - Information leakage in shared container environments"
+      },
+      {
+        "id": "VAULT-UI-ENABLED",
+        "title": "Vault UI enabled in production (ui = true)",
+        "evidence": "config/vault.hcl line 47: ui = true",
+        "impact": "Web UI exposes additional attack surface. Should be disabled in production unless explicitly needed.",
+        "production_risk": "MEDIUM - Unnecessary attack surface"
+      },
+      {
+        "id": "SECRETS-SCRIPT-PERMISSIONS-NOT-ENFORCED",
+        "title": "setup-secrets.sh recommends chmod 600 but doesn't enforce it",
+        "evidence": "scripts/setup-secrets.sh lines 108-110: suggests chmod 600 but doesn't execute it",
+        "impact": "Secret files remain world-readable (644) by default. In container, mounted as root but host perms matter.",
+        "production_risk": "MEDIUM - File permissions too permissive"
+      },
+      {
+        "id": "GRAFANA-DEFAULT-ADMIN-USER",
+        "title": "Grafana hardcoded admin username 'admin'",
+        "evidence": "docker-compose.prod.yaml line 213: GF_SECURITY_ADMIN_USER: admin",
+        "impact": "Predictable username for admin account. Should be randomized or configurable.",
+        "production_risk": "LOW - Password is secret but username is known"
+      }
+    ],
+    "low": [
+      {
+        "id": "POSTGRES-SUPERUSER-USED",
+        "title": "Application uses postgres superuser account",
+        "evidence": "docker-compose.prod.yaml lines 9-10, 98-99: POSTGRES_USER: postgres",
+        "impact": "Application has full DB privileges. Should use least-privilege role.",
+        "production_risk": "LOW - Standard practice but not least privilege"
+      },
+      {
+        "id": "VAULT-MLOCK-DISABLED-IN-CONTAINER",
+        "title": "disable_mlock = false but IPC_LOOK cap added - inconsistent",
+        "evidence": "config/vault.hcl line 33: disable_mlock = false; docker-compose.prod.yaml line 66: cap_add: IPC_LOCK",
+        "impact": "mlock requires IPC_LOCK capability. Config says don't disable mlock but doesn't guarantee it works in all container runtimes.",
+        "production_risk": "LOW - Memory paging possible if mlock fails silently"
+      }
+    ]
+  },
+  "contradictions": [
+    {
+      "description": "VAULT_ADDR set to https:// but tls_disable = true in vault.hcl",
+      "files": ["config/vault.hcl", "docker-compose.prod.yaml"],
+      "severity": "CRITICAL"
+    },
+    {
+      "description": "docker-compose.prod.yaml mounts vault-tls/ and nginx-tls/ as :ro but directories are empty",
+      "files": ["docker-compose.prod.yaml", "config/vault-tls/", "config/nginx-tls/"],
+      "severity": "HIGH"
+    },
+    {
+      "description": "Production compose uses secrets/ files but .gitignore doesn't exclude secrets/",
+      "files": [".gitignore", "docker-compose.prod.yaml", "secrets/"],
+      "severity": "HIGH"
+    },
+    {
+      "description": "API service exposes ports 3000/9090 directly AND nginx proxies to api:3000 - duplicate exposure",
+      "files": ["docker-compose.prod.yaml", "config/nginx.conf"],
+      "severity": "HIGH"
+    },
+    {
+      "description": "Vault healthcheck uses -tls-skip-verify masking missing TLS certs",
+      "files": ["docker-compose.prod.yaml", "config/vault.hcl"],
+      "severity": "MEDIUM"
+    }
+  ],
+  "required_conditions": [
+    "Vault MUST have TLS enabled (tls_disable = false) with valid certificates in vault-tls/ before production deployment",
+    "nginx-tls/ MUST contain valid fullchain.pem and privkey.pem before production deployment",
+    "secrets/ MUST be added to .gitignore immediately",
+    "PostgreSQL, Redis, Vault, and monitoring ports should NOT be exposed to host in production - use internal docker network only",
+    "API ports 3000/9090 should NOT be exposed to host - all traffic must go through nginx",
+    "Vault should NOT run in dev mode (docker-compose.yaml pattern must not leak to prod)",
+    "CSP should use nonces/hashes instead of unsafe-inline/unsafe-eval",
+    "Vault audit log mode should be 0600 or 0640",
+    "Vault UI should be disabled (ui = false) in production",
+    "setup-secrets.sh should enforce chmod 600 on generated secret files",
+    "Grafana admin username should be configurable, not hardcoded 'admin'"
+  ],
+  "risks_unknowns": [
+    "Whether self-signed certs for local Vault HTTPS verification would weaken production posture: YES - if self-signed certs are used in production, clients must disable verification or trust custom CA, creating habit of skipping verification. Better: use proper CA (Let's Encrypt, internal PKI) for both local and prod, or use TLS termination at load balancer with valid certs.",
+    "Empty cert directories cause silent failures: Vault healthcheck passes due to -tls-skip-verify, nginx will fail to start or serve on port 443. Production deployment will appear healthy but TLS not working.",
+    "Dev compose has VAULT_ADDR=http:// (no TLS) while prod has VAULT_ADDR=https:// but TLS disabled - inconsistent config patterns between dev/prod increase misconfiguration risk.",
+    "API keys for ElevenLabs, Veo, Runway, Luma are placeholders - deployment will fail at runtime if not replaced.",
+    "No evidence of secret rotation strategy - vault_token is static, postgres/redis passwords static.",
+    "No network policies or firewall rules defined - all containers on same bridge network with full connectivity.",
+    "Alertmanager webhook URL is placeholder - alerting will not work.",
+    "Archive backend config (S3) credentials not in secrets - ARCHIVE_BUCKET env var but no AWS credentials in compose."
+  ],
+  "confidence": 95
+}

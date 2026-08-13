@@ -1,0 +1,89 @@
+{
+  "production_stack": {
+    "services_count": 9,
+    "vault_service": {
+      "image": "hashicorp/vault:1.15",
+      "environment": {
+        "VAULT_ADDR": "https://vault:8200",
+        "VAULT_API_ADDR": "https://vault:8200",
+        "VAULT_CLUSTER_ADDR": "https://vault:8201"
+      },
+      "volumes": [
+        "vault_data:/vault/data",
+        "vault_logs:/vault/logs",
+        "./config/vault.hcl:/vault/config/vault.hcl:ro",
+        "./config/vault-tls:/vault/tls:ro"
+      ],
+      "healthcheck": {
+        "present": true,
+        "test": ["CMD", "vault", "status", "-tls-skip-verify"],
+        "interval": "10s",
+        "timeout": "5s",
+        "retries": 10
+      },
+      "ports": ["8200:8200", "8201:8201"]
+    },
+    "api_service": {
+      "environment": {
+        "VAULT_ADDR": "https://vault:8200"
+      },
+      "depends_on": {
+        "postgres": {"condition": "service_healthy"},
+        "redis": {"condition": "service_healthy"},
+        "vault": {"condition": "service_healthy"}
+      },
+      "healthcheck": "absent",
+      "ports": ["3000:3000", "9090:9090"]
+    },
+    "nginx_service": {
+      "ports": ["80:80", "443:443"],
+      "depends_on": {
+        "api": {},
+        "frontend": {}
+      },
+      "healthcheck": "absent"
+    },
+    "other_services_healthchecks": {
+      "postgres": "present",
+      "redis": "present",
+      "vault": "present",
+      "api": "absent",
+      "nginx": "absent",
+      "frontend": "absent",
+      "prometheus": "absent",
+      "grafana": "absent",
+      "alertmanager": "absent"
+    },
+    "all_internal_ports_exposed_to_host": true,
+    "secrets_usage": {
+      "uses_docker_secrets": true,
+      "which_services": ["postgres", "redis", "vault", "api", "grafana"]
+    }
+  },
+  "required_changes_for_https": [
+    {
+      "service": "vault",
+      "change": "verify tls cert volume mount matches vault.hcl - VAULT CONFIG MISMATCH: vault.hcl has tls_disable=true but compose uses HTTPS addresses and mounts ./config/vault-tls:/vault/tls. Need to set tls_disable=false and configure tls_cert_file/tls_key_file in vault.hcl listener"
+    },
+    {
+      "service": "api",
+      "change": "verify VAULT_ADDR=https:// and healthcheck adds if missing - VAULT_ADDR correctly set to https://vault:8200. No healthcheck defined in compose; validation script uses nginx proxy for health checks"
+    },
+    {
+      "service": "nginx",
+      "change": "verify no changes needed for HTTPS Vault - Nginx does not directly communicate with Vault; it proxies to API. TLS termination is at nginx (ports 80/443). No changes needed for HTTPS Vault alignment"
+    },
+    {
+      "service": "all",
+      "change": "verify port exposures - Principal said no unrelated changes - All 9 services expose ports to host in prod (postgres:5432, redis:6379, vault:8200/8201, api:3000/9090, nginx:80/443, frontend:no direct port, prometheus:9091, grafana:3001, alertmanager:9093). Current state aligns with compose file"
+    }
+  ],
+  "validation_script_alignment": {
+    "validate_deployment_sh_checks_vault_https": true,
+    "validate_deployment_sh_checks_nginx_metrics": true
+  },
+  "blockers": [
+    "CRITICAL: vault.hcl has tls_disable=true but docker-compose.prod.yaml uses HTTPS addresses and mounts TLS certificates. This will cause Vault to fail or ignore TLS config. Must update vault.hcl to enable TLS (tls_disable=false, tls_cert_file=/vault/tls/cert.pem, tls_key_file=/vault/tls/key.pem) before HTTPS Vault can work."
+  ],
+  "confidence": 0.92
+}

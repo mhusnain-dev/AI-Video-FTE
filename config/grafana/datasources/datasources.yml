@@ -1,0 +1,31 @@
+# Grafana Datasources Provisioning
+# Auto-configures Prometheus and Alertmanager datasources
+
+apiVersion: 1
+
+datasources:
+  - name: 'Prometheus'
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: '15s'
+      queryTimeout: '60s'
+      httpMethod: 'POST'
+      manageAlerts: true
+      alertmanagerUid: 'alertmanager'
+    # Basic auth disabled - use TLS in production
+    # basicAuth: false
+    # withCredentials: false
+
+  - name: 'Alertmanager'
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager:9093
+    uid: 'alertmanager'
+    editable: false
+    jsonData:
+      implementation: 'prometheus'
+    # basicAuth: false

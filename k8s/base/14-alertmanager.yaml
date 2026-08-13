@@ -1,0 +1,146 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: fte-production
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+
+    inhibit_rules:
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['service', 'instance']
+
+      - source_match:
+          severity: 'warning'
+        target_match:
+          severity: 'info'
+        equal: ['service', 'instance']
+
+      - source_match:
+          alertname: 'SacredGuardBlock'
+        target_match_re:
+          alertname: 'SacredGuardBlock'
+        equal: ['model_id', 'user_id']
+
+    route:
+      group_by: ['alertname', 'service', 'severity']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      receiver: 'default'
+      routes:
+        - match:
+            severity: 'critical'
+          receiver: 'pagerduty-critical'
+          continue: true
+          group_wait: 0s
+          group_interval: 5m
+          repeat_interval: 1h
+
+        - match:
+            alertname: 'SacredGuardBlock'
+          receiver: 'security-team'
+          continue: true
+          group_wait: 0s
+          group_interval: 1m
+          repeat_interval: 30m
+
+        - match_re:
+            alertname: 'CostDrift.*'
+          receiver: 'cost-team'
+          group_wait: 1m
+          group_interval: 10m
+          repeat_interval: 2h
+
+        - match:
+            team: 'platform'
+          receiver: 'platform-team'
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 1h
+
+        - match:
+            severity: 'warning'
+          receiver: 'engineering-warnings'
+          group_wait: 1m
+          group_interval: 10m
+          repeat_interval: 4h
+
+        - match:
+            severity: 'info'
+          receiver: 'daily-digest'
+          group_wait: 1h
+          group_interval: 6h
+          repeat_interval: 24h
+
+    receivers:
+      - name: 'default'
+        slack_configs:
+          - api_url_file: '/etc/alertmanager/slack_webhook'
+            channel: '#fte-alerts'
+            title: '{{ .CommonAnnotations.summary }}'
+            text: '{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}'
+            send_resolved: true
+            icon_emoji: ':warning:'
+
+      - name: 'pagerduty-critical'
+        pagerduty_configs:
+          - service_key_file: '/etc/alertmanager/pagerduty_key'
+            severity: 'critical'
+            client: 'AI Video FTE'
+
+      - name: 'security-team'
+        slack_configs:
+          - api_url_file: '/etc/alertmanager/slack_webhook'
+            channel: '#fte-security'
+            title: '🔒 Sacred Guard Alert: {{ .CommonLabels.alertname }}'
+            send_resolved: true
+        pagerduty_configs:
+          - service_key_file: '/etc/alertmanager/pagerduty_security_key'
+            severity: 'critical'
+
+      - name: 'cost-team'
+        slack_configs:
+          - api_url_file: '/etc/alertmanager/slack_webhook'
+            channel: '#fte-costs'
+            title: '💰 Cost Alert: {{ .CommonLabels.alertname }}'
+            send_resolved: true
+        email_configs:
+          - to: 'finance@example.com'
+            send_resolved: true
+
+      - name: 'platform-team'
+        slack_configs:
+          - api_url_file: '/etc/alertmanager/slack_webhook'
+            channel: '#fte-platform'
+            title: '🖥️ Infrastructure Alert: {{ .CommonLabels.alertname }}'
+            send_resolved: true
+        pagerduty_configs:
+          - service_key_file: '/etc/alertmanager/pagerduty_platform_key'
+            severity: '{{ .CommonLabels.severity }}'
+
+      - name: 'engineering-warnings'
+        slack_configs:
+          - api_url_file: '/etc/alertmanager/slack_webhook'
+            channel: '#fte-engineering'
+            title: '⚠️ Warning: {{ .CommonLabels.alertname }}'
+            send_resolved: true
+
+      - name: 'daily-digest'
+        slack_configs:
+          - api_url_file: '/etc/alertmanager/slack_webhook'
+            channel: '#fte-digest'
+            title: '📊 Daily Info Digest - {{ .CommonLabels.alertname }}'
+            send_resolved: false
+
+      - name: 'webhook-team'
+        slack_configs:
+          - api_url_file: '/etc/alertmanager/slack_webhook'
+            channel: '#fte-webhooks'
+            title: '🔗 Webhook Alert: {{ .CommonLabels.alertname }}'
+            send_resolved: true

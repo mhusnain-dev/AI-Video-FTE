@@ -1,0 +1,366 @@
+{
+  "auditor": "integration-regression",
+  "fix_traceability": {
+    "2_vault_port_8200": {
+      "files_to_change": [
+        "docker-compose.prod.yaml:63 (ports section for vault)"
+      ],
+      "consumers_affected": [
+        "docker-compose.prod.yaml:59-61 (VAULT_ADDR, VAULT_API_ADDR, VAULT_CLUSTER_ADDR env vars - all use https://vault:8200)",
+        "docker-compose.prod.yaml:103 (api service VAULT_ADDR env var)",
+        "src/shared/vault.ts:25 (config.vault.address from config.ts)",
+        "src/shared/config.ts:44 (default vault address http://localhost:8200) & :185-191 (VAULT_ADDR env override)",
+        "scripts/validate-deployment.sh:178 (vault status check with -tls-skip-verify)",
+        "config/vault.hcl:12 (listener address 0.0.0.0:8200), :46 (api_addr=https://vault:8200)"
+      ],
+      "tests_affected": [
+        "tests/integration/infrastructure.test.ts:118-130 (Vault Transit tests - uses config.vault.address)",
+        "CI .github/workflows/ci.yml:80, 116 (VAULT_ADDRESS=http://localhost:8200 for test environment)"
+      ],
+      "coordinated_changes": [
+        "Remove host port mapping 8200:8200 from docker-compose.prod.yaml vault service (port 8201 is internal cluster, keep)",
+        "No code changes needed - internal DNS 'vault:8200' works without host port",
+        "Validation script healthcheck already uses vault CLI inside container (correct)"
+      ],
+      "dev_stack_impact": false,
+      "risk": "LOW"
+    },
+    "3_nginx_tls_certs": {
+      "files_to_change": [
+        "config/nginx-tls/ (directory - needs fullchain.pem and privkey.pem)",
+        "docker-compose.prod.yaml:148 (volume mount ./config/nginx-tls:/etc/nginx/tls:ro)"
+      ],
+      "consumers_affected": [
+        "config/nginx.conf:120-121 (ssl_certificate /etc/nginx/tls/fullchain.pem, ssl_certificate_key /etc/nginx/tls/privkey.pem)",
+        "docker-compose.prod.yaml:144-145 (ports 80, 443 - nginx is only external entry point)",
+        "scripts/validate-deployment.sh:132-154 (validate_docker_compose expects nginx service healthy)"
+      ],
+      "tests_affected": [],
+      "coordinated_changes": [
+        "Generate TLS certificates for nginx (can use same CA as Vault or separate Let's Encrypt)",
+        "Must be present before 'make deploy-prod' runs",
+        "setup-secrets.sh currently ONLY generates vault-tls certs - needs extension for nginx-tls"
+      ],
+      "dev_stack_impact": false,
+      "risk": "HIGH"
+    },
+    "4_vault_unseal": {
+      "files_to_change": [
+        "docker-compose.prod.yaml:122-123 (api depends_on vault:healthy)",
+        "docker-compose.prod.yaml:72-76 (vault healthcheck: test: ['CMD', 'vault', 'status', '-tls-skip-verify'])",
+        "scripts/validate-deployment.sh:176-179 (vault status check - greps for 'Sealed|Initialized')"
+      ],
+      "consumers_affected": [
+        "api service startup (depends_on vault:healthy but vault starts SEALED)",
+        "src/shared/vault.ts:22-32 (getVaultClient called at runtime - will fail if vault sealed)",
+        "All services using Vault Transit (biometric encryption)"
+      ],
+      "tests_affected": [
+        "tests/integration/infrastructure.test.ts:118-130 (initializeVaultKey, encryptDEKWithKEK - require unsealed Vault)"
+      ],
+      "coordinated_changes": [
+        "Add vault unseal step: either init container, separate unseal service, or modify vault healthcheck to check unsealed=true",
+        "Current healthcheck passes on SEALED (grep 'Sealed|Initialized' matches both)",
+        "Need: healthcheck that only passes when unsealed=true, OR add unseal script before api starts"
+      ],
+      "dev_stack_impact": false,
+      "risk": "HIGH"
+    },
+    "5_remove_host_ports": {
+      "files_to_change": [
+        "docker-compose.prod.yaml:12 (postgres -p 5432:5432), :37 (redis -p 6379:6379), :63-64 (vault -p 8200:8200, 8201:8201), :115-116 (api -p 3000:3000, 9090:9090), :187 (prometheus -p 9091:9090), :211 (grafana -p 3001:3000), :238 (alertmanager -p 9093:9093)"
+      ],
+      "consumers_affected": [
+        "nginx upstream config/nginx.conf:83-87 (api_backend uses 'api:3000' - internal DNS, unaffected)",
+        "config/nginx.conf:89-93 (frontend_backend uses 'frontend:80' - internal, unaffected)",
+        "prometheus.prod.yml:61 (static scrape target 'api:3000' - internal, unaffected)",
+        "prometheus.prod.yml:92-98 (vault scrape target 'vault:8200' - internal, unaffected)",
+        "scripts/validate-deployment.sh:154 (curl localhost/health via nginx - port 80/443 only, OK)",
+        "scripts/validate-deployment.sh:157 (curl localhost:9091 for prometheus - WOULD BREAK)",
+        "scripts/validate-deployment.sh:160 (curl localhost:3001 for grafana - WOULD BREAK)",
+        "scripts/validate-deployment.sh:163 (curl localhost:9093 for alertmanager - WOULD BREAK)"
+      ],
+      "tests_affected": [],
+      "coordinated_changes": [
+        "Remove ALL host port bindings EXCEPT nginx (80, 443)",
+        "Update validate-deployment.sh to check internal endpoints via docker exec or nginx proxy",
+        "For prometheus/grafana/alertmanager: add to nginx upstream or check via docker compose exec",
+        "Dev stack docker-compose.yaml has SAME ports - needs parallel update for dev/prod coexistence (CL-025)"
+      ],
+      "dev_stack_impact": true,
+      "risk": "MEDIUM"
+    },
+    "6_gitignore_secrets": {
+      "files_to_change": [
+        ".gitignore (add 'secrets/' and 'config/vault-tls/')"
+      ],
+      "consumers_affected": [
+        "scripts/setup-secrets.sh:160 (falsely claims 'already done')",
+        "Git tracking - 8 secret files + CA key currently at commit risk"
+      ],
+      "tests_affected": [],
+      "coordinated_changes": [
+        "Add to .gitignore: secrets/ and config/vault-tls/",
+        "Fix setup-secrets.sh line 160 to not claim already done"
+      ],
+      "dev_stack_impact": false,
+      "risk": "LOW"
+    },
+    "7_chmod_600": {
+      "files_to_change": [
+        "secrets/*.txt (8 files currently 664 -> 600)",
+        "config/vault-tls/ca.crt, ca.srl, vault.crt, vault.csr (currently 664 -> 600)",
+        "config/vault-tls/vault.key, ca.key (already 600 - correct)"
+      ],
+      "consumers_affected": [
+        "Docker secrets mount (docker-compose.prod.yaml:269-285 secrets block) - files read by containers",
+        "Application reads via /run/secrets/ - needs readable by nodejs user (UID 1001)",
+        "scripts/setup-secrets.sh:156 (recommends chmod 600 but doesn't enforce)"
+      ],
+      "tests_affected": [],
+      "coordinated_changes": [
+        "chmod 600 all secret files",
+        "Ensure Dockerfile.prod creates nodejs user (UID 1001) that can read secrets",
+        "Add chmod to setup-secrets.sh"
+      ],
+      "dev_stack_impact": false,
+      "risk": "LOW"
+    },
+    "8_remove_ca_key": {
+      "files_to_change": [
+        "config/vault-tls/ca.key (1704 bytes, 600) - DELETE after cert generation"
+      ],
+      "consumers_affected": [
+        "setup-secrets.sh:99 (generates ca.key), :130 (chmod 600), :131 (rm vault.csr ca.srl but NOT ca.key)",
+        "Vault TLS config (vault.hcl:17 tls_client_ca_file=/vault/tls/ca.crt) - only needs CA CERT, not key"
+      ],
+      "tests_affected": [],
+      "coordinated_changes": [
+        "Add 'rm -f \"$VAULT_TLS_DIR/ca.key\"' to setup-secrets.sh after cert generation (line 131)",
+        "CA private key must NEVER be deployed - only ca.crt needed for client verification"
+      ],
+      "dev_stack_impact": false,
+      "risk": "LOW"
+    },
+    "9_cleanup_csr_srl": {
+      "files_to_change": [
+        "config/vault-tls/vault.csr (956 bytes, 664) - DELETE",
+        "config/vault-tls/ca.srl (41 bytes, 664) - DELETE"
+      ],
+      "consumers_affected": [
+        "setup-secrets.sh:131 has 'rm -f ... vault.csr ca.srl' but files persist (script run without cleanup or cleanup failed)"
+      ],
+      "tests_affected": [],
+      "coordinated_changes": [
+        "Ensure cleanup runs after cert generation in setup-secrets.sh",
+        "Add verification that files are removed"
+      ],
+      "dev_stack_impact": false,
+      "risk": "LOW"
+    },
+    "10_docker_secrets_exclusive": {
+      "files_to_change": [
+        "docker-compose.prod.yaml:92-109 (api environment: POSTGRES_PASSWORD, REDIS_PASSWORD, VAULT_TOKEN, ELEVENLABS_API_KEY, VEO_API_KEY, RUNWAY_API_KEY, LUMA_API_KEY, ALERTMANAGER_WEBHOOK_URL - all use ${VAR} env vars)",
+        "docker-compose.prod.yaml:269-285 (secrets block defined but NOT used by services)",
+        "docker-compose.prod.yaml:7-10 (postgres env POSTGRES_PASSWORD)",
+        "docker-compose.prod.yaml:35 (redis command --requirepass ${REDIS_PASSWORD})",
+        "docker-compose.prod.yaml:213-214 (grafana env GF_SECURITY_ADMIN_PASSWORD_FILE)"
+      ],
+      "consumers_affected": [
+        "src/shared/config.ts:157-170 (getEnvOverrides reads POSTGRES_PASSWORD, REDIS_PASSWORD, VAULT_TOKEN from env)",
+        "src/shared/vault.ts:25-26 (uses config.vault.address, config.vault.token from config)",
+        "src/shared/redis.ts:36-38 (uses config.redis.host, port, password from config)",
+        "grafana container expects GF_SECURITY_ADMIN_PASSWORD_FILE"
+      ],
+      "tests_affected": [
+        "tests/integration/infrastructure.test.ts (uses config which reads from env)",
+        "CI .github/workflows/ci.yml:71-81, 107-118 (sets env vars directly for tests)"
+      ],
+      "coordinated_changes": [
+        "Remove all ${VAR} env vars from docker-compose.prod.yaml services",
+        "Add 'secrets:' section to each service referencing the defined secrets",
+        "Update config.ts to read from /run/secrets/* files when env vars not set",
+        "For postgres: use POSTGRES_PASSWORD_FILE instead of POSTGRES_PASSWORD",
+        "For redis: password via file or env from secret",
+        "For api: all secrets via Docker secrets mount"
+      ],
+      "dev_stack_impact": true,
+      "risk": "HIGH"
+    },
+    "11_disable_vault_ui": {
+      "files_to_change": [
+        "config/vault.hcl:50 (ui = true -> ui = false)"
+      ],
+      "consumers_affected": [
+        "docker-compose.prod.yaml:63 (ports 8200:8200 exposes Vault UI if enabled)",
+        "Vault UI accessible at https://vault:8200/ui when ui=true"
+      ],
+      "tests_affected": [],
+      "coordinated_changes": [
+        "Change vault.hcl:50 from 'ui = true' to 'ui = false'",
+        "Combined with fix #2 (remove host port 8200), UI cannot be reached externally"
+      ],
+      "dev_stack_impact": false,
+      "risk": "LOW"
+    },
+    "12_replace_placeholder_keys": {
+      "files_to_change": [
+        "secrets/elevenlabs_key.txt (contains 'YOUR_ELEVENLABS_API_KEY_HERE')",
+        "secrets/veo_key.txt (contains 'YOUR_VEO_API_KEY_HERE')",
+        "secrets/runway_key.txt (contains 'YOUR_RUNWAY_API_KEY_HERE')",
+        "secrets/luma_key.txt (contains 'YOUR_LUMA_API_KEY_HERE')"
+      ],
+      "consumers_affected": [
+        "docker-compose.prod.yaml:106-109 (api env ELEVENLABS_API_KEY, VEO_API_KEY, RUNWAY_API_KEY, LUMA_API_KEY)",
+        "src/shared/config.ts:195-203 (getEnvOverrides reads these env vars into config)",
+        "Video generation adapters (not shown but implied by model registry)"
+      ],
+      "tests_affected": [],
+      "coordinated_changes": [
+        "Replace placeholder values with actual API keys in secrets/ files",
+        "setup-secrets.sh:53,61,69,77 create placeholders - user must replace manually"
+        "No code changes - just secret values"
+      ],
+      "dev_stack_impact": false,
+      "risk": "MEDIUM"
+    },
+    "13_add_healthchecks": {
+      "files_to_change": [
+        "docker-compose.prod.yaml:140-162 (nginx service - NO healthcheck)",
+        "docker-compose.prod.yaml:164-181 (frontend service - NO healthcheck)",
+        "docker-compose.prod.yaml:183-205 (prometheus service - NO healthcheck)",
+        "docker-compose.prod.yaml:207-232 (grafana service - NO healthcheck)",
+        "docker-compose.prod.yaml:234-254 (alertmanager service - NO healthcheck)"
+      ],
+      "consumers_affected": [
+        "scripts/validate-deployment.sh:140-151 (accepts 'healthy' OR 'none' as pass - FALSE POSITIVE for 5 services)",
+        "scripts/validate-deployment.sh:154 (curl localhost/health via nginx - depends on nginx health)",
+        "scripts/validate-deployment.sh:157,160,163 (prometheus, grafana, alertmanager checked via host ports)"
+      ],
+      "tests_affected": [],
+      "coordinated_changes": [
+        "Add healthcheck to nginx: curl -f http://localhost/health or similar",
+        "Add healthcheck to frontend: curl -f http://localhost/ or wget",
+        "Add healthcheck to prometheus: curl -f http://localhost:9090/-/healthy",
+        "Add healthcheck to grafana: curl -f http://localhost:3000/api/health",
+        "Add healthcheck to alertmanager: curl -f http://localhost:9093/-/healthy",
+        "Fix validate-deployment.sh line 145 to REJECT 'none' status"
+      ],
+      "dev_stack_impact": true,
+      "risk": "MEDIUM"
+    },
+    "16_fix_validation_script": {
+      "files_to_change": [
+        "scripts/validate-deployment.sh:145 (health == 'healthy' || health == 'none') -> health == 'healthy'",
+        "scripts/validate-deployment.sh:178 (grep 'Sealed|Initialized' matches SEALED as pass - should check unsealed=true)"
+      ],
+      "consumers_affected": [
+        "Makefile:115-116 (make validate runs validate-deployment.sh)",
+        "Makefile:100-104 (deploy-prod runs make validate after deploy)"
+      ],
+      "tests_affected": [],
+      "coordinated_changes": [
+        "Fix line 145 reject 'none'",
+        "Fix line 178 vault check to require unsealed=true (not just Sealed|Initialized)",
+        "Consider adding runbook references per validation step"
+      ],
+      "dev_stack_impact": false,
+      "risk": "LOW"
+    }
+  },
+  "hidden_dependencies": [
+    "CL-024 (Vault TLS Protocol) and CL-025 (Dev/Prod Coexistence) are documented in spec.md Clarification Log but require implementation alignment",
+    "Vault TLS contradiction (vault.hcl tls_disable=false + certs vs healthcheck -tls-skip-verify) must be resolved - config says HTTPS, listener uses TLS, but healthcheck skips verify",
+    "setup-secrets.sh generates BOTH vault-tls AND .env.example but .env.example references /run/secrets/* files while compose uses ${VAR} env vars - inconsistent secrets strategy",
+    "config.ts defaults vault.address to 'http://localhost:8200' (line 44) but prod uses HTTPS - environment override required",
+    "nginx-tls directory exists but empty - certs must be generated before deploy",
+    "Prometheus scrape config for vault (prometheus.prod.yml:90-99) expects TLS client certs that don't exist",
+    "Dev and prod docker-compose files share identical network name 'fte-network' and overlapping volume names - causes conflicts per Docker/Infra auditor",
+    "grafana password uses Docker secret (GF_SECURITY_ADMIN_PASSWORD_FILE) but docker-compose.prod.yaml:214 also has env var commented - dual config",
+    "api service exposes port 9090 (metrics) but nginx.conf:171 restricts /metrics to RFC1918 IPs - host port 9090 bypasses nginx restriction",
+    "Vault cluster port 8201 exposed on host (docker-compose.prod.yaml:64) but only used internally for raft"
+  ],
+  "regression_risks": [
+    {
+      "fix": "2_vault_port_8200",
+      "risk": "LOW",
+      "description": "Removing host port is safe - internal DNS 'vault:8200' works. Only risk if external tools expect localhost:8200."
+    },
+    {
+      "fix": "3_nginx_tls_certs",
+      "risk": "HIGH",
+      "description": "nginx will fail to start without certs. Must generate before deploy. No fallback."
+    },
+    {
+      "fix": "4_vault_unseal",
+      "risk": "HIGH",
+      "description": "api depends_on vault:healthy but healthcheck passes when SEALED. api starts, fails to read secrets. Need healthcheck that requires unsealed=true."
+    },
+    {
+      "fix": "5_remove_host_ports",
+      "risk": "MEDIUM",
+      "description": "Validation script checks prometheus/grafana/alertmanager on host ports. Must update validation to use docker exec or nginx proxy."
+    },
+    {
+      "fix": "6_gitignore_secrets",
+      "risk": "LOW",
+      "description": "Simple .gitignore addition. No runtime impact."
+    },
+    {
+      "fix": "7_chmod_600",
+      "risk": "LOW",
+      "description": "File permissions only. Docker secrets mount preserves perms. App reads as nodejs user (UID 1001)."
+    },
+    {
+      "fix": "8_remove_ca_key",
+      "risk": "LOW",
+      "description": "CA key not needed at runtime. Only ca.crt used by Vault for client verification."
+    },
+    {
+      "fix": "9_cleanup_csr_srl",
+      "risk": "LOW",
+      "description": "Artifact cleanup only. No runtime dependencies."
+    },
+    {
+      "fix": "10_docker_secrets_exclusive",
+      "risk": "HIGH",
+      "description": "Major architecture change. Requires config.ts to read from /run/secrets/*. All services must declare secrets. Dev stack also needs update. CI tests set env vars directly."
+    },
+    {
+      "fix": "11_disable_vault_ui",
+      "risk": "LOW",
+      "description": "Config change only. Combined with port removal, no external access possible."
+    },
+    {
+      "fix": "12_replace_placeholder_keys",
+      "risk": "MEDIUM",
+      "description": "Functional requirement - video generation will fail with placeholder keys. No code change, just secret values."
+    },
+    {
+      "fix": "13_add_healthchecks",
+      "risk": "MEDIUM",
+      "description": "Adding healthchecks may cause services to be marked unhealthy if endpoints not ready. Need appropriate start_period/retries."
+    },
+    {
+      "fix": "16_fix_validation_script",
+      "risk": "LOW",
+      "description": "Script logic fix only. Makes validation stricter (rejects 'none', requires vault unsealed)."
+    }
+  ],
+  "test_coverage_gaps": [
+    "No tests for nginx TLS certificate validation",
+    "No tests for Vault unseal logic / healthcheck behavior when sealed vs unsealed",
+    "No tests for Docker secrets consumption (config.ts only reads env vars, not /run/secrets/*)",
+    "No tests for validation-deployment.sh logic (bash script, not unit tested)",
+    "No tests for setup-secrets.sh certificate generation and cleanup",
+    "CI runs tests with VAULT_ADDRESS=http://localhost:8200 but prod uses HTTPS - no TLS integration test",
+    "Integration tests assume dev stack (docker-compose.yaml) - no prod stack integration tests",
+    "No tests for prometheus/grafana/alertmanager health endpoints"
+  ],
+  "ci_integration": {
+    "validation_in_ci": false,
+    "make_targets_exist": true,
+    "details": "CI .github/workflows/ci.yml runs typecheck, lint, test, coverage, build but does NOT run 'make validate' or validate-deployment.sh. Makefile has 'validate' target (line 115-116) and 'deploy-prod' runs 'make validate' (line 104), but CI does not invoke deployment validation."
+  },
+  "integration_posture": "BLOCKED"
+}

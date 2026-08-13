@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-video-fte-api
+  namespace: fte-production
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: ai-video-fte-api
+  template:
+    metadata:
+      labels:
+        app: ai-video-fte-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: ai-video-fte-api
+      containers:
+        - name: api
+          image: ghcr.io/mhusnain-dev/ai-video-fte/api:latest
+          ports:
+            - containerPort: 3000
+              name: http
+            - containerPort: 9090
+              name: metrics
+          envFrom:
+            - configMapRef:
+                name: ai-video-fte-config
+            - secretRef:
+                name: ai-video-fte-secrets
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+      volumes:
+        - name: config
+          configMap:
+            name: ai-video-fte-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-video-fte-api
+  namespace: fte-production
+spec:
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: http
+    - port: 9090
+      targetPort: 9090
+      name: metrics
+  selector:
+    app: ai-video-fte-api
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ai-video-fte-api
+  namespace: fte-production

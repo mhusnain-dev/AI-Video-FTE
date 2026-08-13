@@ -1,0 +1,113 @@
+{
+  "dashboard": {
+    "title": "AI Video FTE - Cost & Budget",
+    "uid": "ai-video-fte-cost",
+    "tags": ["ai-video-fte", "cost", "budget", "drift"],
+    "timezone": "utc",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Cost Drift Percentage",
+        "type": "gauge",
+        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "ai_video_cost_drift_percentage_gauge",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 100,
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 20},
+                {"color": "orange", "value": 50},
+                {"color": "red", "value": 100}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Cost Records by Type",
+        "type": "piechart",
+        "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum by (cost_type) (rate(ai_video_cost_records_total[5m]))",
+            "legendFormat": "{{cost_type}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Cost per Model (USD/min)",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_cost_amount_usd_sum{model_id=~\".+\"}[5m]) * 60",
+            "legendFormat": "{{model_id}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+      },
+      {
+        "id": 4,
+        "title": "Cost per Story (Total)",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_cost_amount_usd_sum{story_id=~\".+\"}[5m]) * 60",
+            "legendFormat": "{{story_id}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+      },
+      {
+        "id": 5,
+        "title": "Estimated vs Actual Cost",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_cost_amount_usd_sum{cost_type=\"estimated\"}[5m]) * 60",
+            "legendFormat": "Estimated",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(ai_video_cost_amount_usd_sum{cost_type=\"actual\"}[5m]) * 60",
+            "legendFormat": "Actual",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+      },
+      {
+        "id": 6,
+        "title": "Drift Alerts",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_cost_drift_alerts_total[5m]) * 60",
+            "legendFormat": "{{story_id}}",
+            "refId": "A"
+          }
+        ]
+      }
+    ],
+    "time": {"from": "now-1h", "to": "now"},
+    "refresh": "30s"
+  }
+}

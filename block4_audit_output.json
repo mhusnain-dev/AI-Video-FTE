@@ -1,0 +1,209 @@
+{
+  "evidence_examined": [
+    "/home/dev-logs/Desktop/FTE/scripts/validate-deployment.sh (validate_docker_compose function lines 132-179)",
+    "/home/dev-logs/Desktop/FTE/docker-compose.prod.yaml (all services, healthchecks, ports, depends_on)",
+    "/home/dev-logs/Desktop/FTE/config/nginx.conf (upstreams, health/metrics routing, IP restrictions)"
+  ],
+  "acceptance_checklist": [
+    {
+      "service": "postgres",
+      "check": "healthcheck passes",
+      "command": "docker compose -f docker-compose.prod.yaml ps --format json postgres | jq -r '.[0].Health'",
+      "pass_criteria": "healthy",
+      "criticality": "required"
+    },
+    {
+      "service": "postgres",
+      "check": "pg_isready accepts connections",
+      "command": "docker compose -f docker-compose.prod.yaml exec -T postgres pg_isready -U postgres -d ai_video_fte",
+      "pass_criteria": "exit 0",
+      "criticality": "required"
+    },
+    {
+      "service": "redis",
+      "check": "healthcheck passes",
+      "command": "docker compose -f docker-compose.prod.yaml ps --format json redis | jq -r '.[0].Health'",
+      "pass_criteria": "healthy",
+      "criticality": "required"
+    },
+    {
+      "service": "redis",
+      "check": "PING returns PONG",
+      "command": "docker compose -f docker-compose.prod.yaml exec -T redis redis-cli -a \"$(cat secrets/redis_password.txt)\" ping",
+      "pass_criteria": "contains PONG",
+      "criticality": "required"
+    },
+    {
+      "service": "vault",
+      "check": "healthcheck passes",
+      "command": "docker compose -f docker-compose.prod.yaml ps --format json vault | jq -r '.[0].Health'",
+      "pass_criteria": "healthy",
+      "criticality": "required"
+    },
+    {
+      "service": "vault",
+      "check": "vault status shows Sealed or Initialized",
+      "command": "docker compose -f docker-compose.prod.yaml exec -T vault vault status -tls-skip-verify",
+      "pass_criteria": "output contains 'Sealed' or 'Initialized'",
+      "criticality": "required"
+    },
+    {
+      "service": "api",
+      "check": "healthcheck passes (or none defined)",
+      "command": "docker compose -f docker-compose.prod.yaml ps --format json api | jq -r '.[0].Health'",
+      "pass_criteria": "healthy or none",
+      "criticality": "required"
+    },
+    {
+      "service": "api",
+      "check": "/health endpoint via nginx returns {status: healthy}",
+      "command": "curl -sf http://localhost/health | jq -e '.status == \"healthy\"'",
+      "pass_criteria": "exit 0",
+      "criticality": "required"
+    },
+    {
+      "service": "nginx",
+      "check": "healthcheck passes (or none defined)",
+      "command": "docker compose -f docker-compose.prod.yaml ps --format json nginx | jq -r '.[0].Health'",
+      "pass_criteria": "healthy or none",
+      "criticality": "required"
+    },
+    {
+      "service": "frontend",
+      "check": "healthcheck passes (or none defined)",
+      "command": "docker compose -f docker-compose.prod.yaml ps --format json frontend | jq -r '.[0].Health'",
+      "pass_criteria": "healthy or none",
+      "criticality": "required"
+    },
+    {
+      "service": "prometheus",
+      "check": "healthcheck passes (or none defined)",
+      "command": "docker compose -f docker-compose.prod.yaml ps --format json prometheus | jq -r '.[0].Health'",
+      "pass_criteria": "healthy or none",
+      "criticality": "required"
+    },
+    {
+      "service": "prometheus",
+      "check": "/-/healthy endpoint accessible on port 9091",
+      "command": "curl -sf http://localhost:9091/-/healthy",
+      "pass_criteria": "exit 0",
+      "criticality": "required"
+    },
+    {
+      "service": "grafana",
+      "check": "healthcheck passes (or none defined)",
+      "command": "docker compose -f docker-compose.prod.yaml ps --format json grafana | jq -r '.[0].Health'",
+      "pass_criteria": "healthy or none",
+      "criticality": "required"
+    },
+    {
+      "service": "grafana",
+      "check": "/api/health returns {database: ok}",
+      "command": "curl -sf http://localhost:3001/api/health | jq -e '.database == \"ok\"'",
+      "pass_criteria": "exit 0",
+      "criticality": "required"
+    },
+    {
+      "service": "alertmanager",
+      "check": "healthcheck passes (or none defined)",
+      "command": "docker compose -f docker-compose.prod.yaml ps --format json alertmanager | jq -r '.[0].Health'",
+      "pass_criteria": "healthy or none",
+      "criticality": "required"
+    },
+    {
+      "service": "alertmanager",
+      "check": "/-/healthy endpoint accessible on port 9093",
+      "command": "curl -sf http://localhost:9093/-/healthy",
+      "pass_criteria": "exit 0",
+      "criticality": "required"
+    },
+    {
+      "service": "nginx",
+      "check": "/metrics endpoint accessible via nginx (RFC 1918 IPs only)",
+      "command": "curl -sf http://localhost/metrics",
+      "pass_criteria": "exit 0 (warn if fails)",
+      "criticality": "warn"
+    }
+  ],
+  "findings": {
+    "services_with_explicit_healthchecks": ["postgres", "redis", "vault"],
+    "services_without_healthchecks": ["api", "nginx", "frontend", "prometheus", "grafana", "alertmanager"],
+    "validation_script_accepts_none_as_healthy": true,
+    "docker_compose_services_list": ["postgres", "redis", "vault", "api", "nginx", "frontend", "prometheus", "grafana", "alertmanager"],
+    "api_ports": {"container": 3000, "host": 3000, "metrics_container": 9090, "metrics_host": 9090},
+    "nginx_ports": {"http": 80, "https": 443},
+    "prometheus_ports": {"container": 9090, "host": 9091},
+    "grafana_ports": {"container": 3000, "host": 3001},
+    "alertmanager_ports": {"container": 9093, "host": 9093},
+    "postgres_ports": {"container": 5432, "host": 5432},
+    "redis_ports": {"container": 6379, "host": 6379},
+    "vault_ports": {"container": [8200, 8201], "host": [8200, 8201]},
+    "nginx_upstream_api": "api:3000 (least_conn, max_fails=3, fail_timeout=30s, keepalive=32)",
+    "nginx_upstream_frontend": "frontend:80 (least_conn, max_fails=3, fail_timeout=30s, keepalive=16)",
+    "nginx_health_endpoints": ["/health", "/ready"],
+    "nginx_metrics_endpoint": "/metrics (IP restricted to RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)",
+    "api_depends_on": ["postgres:service_healthy", "redis:service_healthy", "vault:service_healthy"],
+    "nginx_depends_on": ["api", "frontend"],
+    "grafana_depends_on": ["prometheus"],
+    "secrets_required": ["postgres_password.txt", "redis_password.txt", "vault_token.txt", "elevenlabs_key.txt", "veo_key.txt", "runway_key.txt", "luma_key.txt", "grafana_password.txt"],
+    "validation_timeout_per_service": "300 seconds (60 attempts * 5s interval)",
+    "validation_total_timeout": "~45 minutes worst case"
+  },
+  "contradictions": [
+    "validate_docker_compose() expects 9 services but docker-compose.prod.yaml defines exactly 9 services - MATCHES",
+    "Script checks prometheus on localhost:9091 but compose maps host 9091 -> container 9090 - MATCHES",
+    "Script checks grafana on localhost:3001 but compose maps host 3001 -> container 3000 - MATCHES",
+    "Script checks alertmanager on localhost:9093 but compose maps host 9093 -> container 9093 - MATCHES",
+    "Script checks API health via nginx on localhost/health - nginx.conf routes /health to api_backend/health - MATCHES",
+    "Script checks /metrics via nginx on localhost/metrics - nginx.conf routes /metrics to api_backend/metrics with IP allowlist - MATCHES (but will fail from localhost unless RFC 1918)",
+    "nginx.conf upstream api_backend uses 'api:3000' - docker-compose service name is 'api' - MATCHES",
+    "nginx.conf upstream frontend_backend uses 'frontend:80' - docker-compose frontend container port is 80 (nginx serves static files) - MATCHES",
+    "api service has no explicit healthcheck - validation accepts 'none' as healthy for api - INTENTIONAL BY DESIGN"
+  ],
+  "required_preconditions": [
+    "Docker and docker compose v2+ installed and running",
+    "All 8 secret files exist in ./secrets/ directory with correct permissions",
+    "TLS certificates exist in ./config/nginx-tls/ (fullchain.pem, privkey.pem)",
+    "Vault TLS certificates exist in ./config/vault-tls/",
+    "Vault config exists at ./config/vault.hcl",
+    "Prometheus config exists at ./config/prometheus.prod.yml",
+    "Alertmanager config exists at ./config/alertmanager.yml",
+    "Grafana provisioning configs exist at ./config/grafana/dashboards/ and ./config/grafana/datasources/",
+    "Frontend build output exists at ./frontend/dist/",
+    "Database migrations exist at ./migrations/",
+    "Dockerfile.prod exists at root and ./frontend/Dockerfile.prod exists",
+    "Network 'fte-network' can be created (bridge driver)",
+    "Host ports 80, 443, 3000, 3001, 5432, 6379, 8200, 8201, 9091, 9093 are available",
+    "Environment variables set: POSTGRES_PASSWORD, REDIS_PASSWORD, VAULT_TOKEN, ELEVENLABS_API_KEY, VEO_API_KEY, RUNWAY_API_KEY, LUMA_API_KEY, ALERTMANAGER_WEBHOOK_URL, ARCHIVE_BACKEND, ARCHIVE_BUCKET",
+    "curl, jq, docker commands available in PATH"
+  ],
+  "block4_acceptance_gates": [
+    "All 9 services show 'healthy' or 'none' health status in docker compose ps",
+    "postgres: pg_isready returns success",
+    "redis: redis-cli ping returns PONG",
+    "vault: vault status shows 'Sealed' or 'Initialized'",
+    "API /health via nginx returns JSON with status == 'healthy'",
+    "Prometheus /-/healthy on :9091 returns 200",
+    "Grafana /api/health on :3001 returns JSON with database == 'ok'",
+    "Alertmanager /-/healthy on :9093 returns 200",
+    "/metrics via nginx accessible (warn only)",
+    "No service in restart loop (deploy.restart_policy max_attempts not exceeded)"
+  ],
+  "what_must_happen_before_implementation": [
+    "Phase 1-3 complete: Intent, Research, Specification approved",
+    "Phase 4 Clarification: All ambiguities resolved with Principal sign-off",
+    "Build authorization explicitly granted by human",
+    "All preconditions above satisfied",
+    "Spec.md Acceptance Criteria match this checklist exactly (traceability)"
+  ],
+  "what_must_not_happen_yet": [
+    "Writing production code before Build authorization",
+    "Generating implementation plans before Specification approval",
+    "Making architecture decisions before Specification exists",
+    "Modifying INTENT.md without explicit human instruction",
+    "Skipping any phase gate",
+    "Auto-approving own work",
+    "Pushing to remote without ask"
+  ],
+  "confidence": 98
+}

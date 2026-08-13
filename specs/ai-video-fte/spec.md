@@ -458,6 +458,24 @@ The following are explicitly **not** part of this Digital FTE's behavioural spec
 
 ---
 
+### CL-024: Vault Production TLS Protocol
+**Date**: 2026-08-10  
+**Question**: What TLS protocol should Vault use in production — HTTPS with self-signed certificates for verification, or HTTP (dev-style, no TLS)?  
+**Decision**: HTTPS/TLS with self-signed certificates acceptable for local verification/build phase. Production-grade CA/certificate requirements must remain explicitly distinguished from local verification certificates.  
+**Rationale**: 80% of production configuration already assumes HTTPS (vault.hcl api_addr/cluster_addr, docker-compose.prod.yaml VAULT_ADDR, setup-secrets.sh generates certs, healthcheck uses -tls-skip-verify). Self-signed for verification is per Principal direction. Spec has zero Vault protocol requirements — choosing HTTPS modifies observable security posture (Specification Stability Rule CLAUDE.md §8). Clarification required and completed.  
+**Updated**: No functional requirements changed (spec specifies behavioral requirements only: "securely store/retrieve secrets via Vault", "sealed state must not break dependent services"). Implementation must align Vault listener TLS state with all consumer configurations.
+
+---
+
+### CL-025: Dev/Prod Coexistence Strategy
+**Date**: 2026-08-10  
+**Question**: How should development and production Docker stacks coexist — accept mutual exclusion, different host ports for dev, or full isolation?  
+**Decision**: Option B — Different host ports for development. Production retains standard ports (5432, 6379, 8200, 3000, 9090, 9091, 3001, 80, 443, 9093). Development uses clearly documented non-conflicting host ports (offset by +1: 5433, 6380, 8201, 3001, 9091, 9092, 3002). Dev and production must remain isolated in Docker project/network/volume configuration. Internal service-to-service addresses must not be altered by port changes.  
+**Rationale**: Current state has 7 identical host ports preventing simultaneous operation. Option B requires zero production changes, minimal dev changes, allows parallel operation. Option A creates developer friction; Option C over-engineers for current scope. This changes developer workflow observable behavior (Specification Stability Rule CLAUDE.md §8). Clarification required and completed.  
+**Updated**: No functional requirements changed. Dev stack docker-compose.yaml ports section must be updated to offset ports while preserving internal service addresses (postgres:5432, redis:6379, vault:8200, api:3000/9090, etc.).
+
+---
+
 *(To be populated during Phase 4 Clarification interview)*
 
 ---

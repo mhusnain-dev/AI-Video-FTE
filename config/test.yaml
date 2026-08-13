@@ -1,0 +1,54 @@
+# AI Video FTE - Test Configuration
+# Used when NODE_ENV=test
+
+modelRegistry:
+  refreshIntervalMs: 300000
+  models:
+    - id: "veo3-low"
+      name: "Veo 3 Low Quality"
+      provider: "google"
+      maxResolution: "1080p"
+      maxDurationSeconds: 10
+      supportedAspectRatios: ["16:9", "9:16", "1:1", "4:5"]
+      supportedRegions: ["us", "eu", "asia"]
+      costPerSecondUsd: 0.00
+      costCurrency: "USD"
+      capabilities: ["text_to_video", "image_to_video", "reference_conditioning"]
+      defaultTimeoutSeconds: 120
+    - id: "veo3-high"
+      name: "Veo 3 High Quality"
+      provider: "google"
+      maxResolution: "4K"
+      maxDurationSeconds: 10
+      supportedAspectRatios: ["16:9", "9:16", "1:1", "4:5"]
+      supportedRegions: ["us", "eu", "asia"]
+      costPerSecondUsd: 0.05
+      costCurrency: "USD"
+      capabilities: ["text_to_video", "image_to_video", "reference_conditioning", "native_audio", "high_fidelity"]
+      defaultTimeoutSeconds: 180
+    - id: "runway-gen3"
+      name: "Runway Gen-3 Alpha"
+      provider: "runway"
+      maxResolution: "1080p"
+      maxDurationSeconds: 10
+      supportedAspectRatios: ["16:9", "9:16"]
+      supportedRegions: ["us", "eu"]
+      costPerSecondUsd: 0.08
+      costCurrency: "USD"
+      capabilities: ["text_to_video", "image_to_video", "reference_conditioning"]
+      defaultTimeoutSeconds: 180
+    - id: "luma-ray2"
+      name: "Luma Ray 2"
+      provider: "luma"
+      maxResolution: "1080p"
+      maxDurationSeconds: 10
+      supportedAspectRatios: ["16:9", "9:16", "1:1"]
+      supportedRegions: ["us"]
+      costPerSecondUsd: 0.03
+      costCurrency: "USD"
+      capabilities: ["text_to_video", "image_to_video", "fast_generation"]
+      defaultTimeoutSeconds: 120
+
+router:
+  systemDefaultPriority: ["veo3-low", "veo3-high", "runway-gen3", "luma-ray2"]
+  eligibilityCheckEnabled: true

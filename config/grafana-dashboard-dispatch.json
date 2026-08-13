@@ -1,0 +1,203 @@
+{
+  "dashboard": {
+    "title": "AI Video FTE - Dispatch & Generation",
+    "uid": "ai-video-fte-dispatch",
+    "tags": ["ai-video-fte", "dispatch", "generation", "webhook", "timeout", "fallback"],
+    "timezone": "utc",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Shot Dispatch Status",
+        "type": "piechart",
+        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum by (status) (ai_video_shot_dispatch_total)",
+            "legendFormat": "{{status}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Dispatch Rate by Model",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_shot_dispatch_total[5m]) * 60",
+            "legendFormat": "{{model_id}} {{status}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Dispatch to Webhook Latency (P50, P95, P99)",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(ai_video_shot_dispatch_latency_seconds_bucket[5m])) by (le, model_id))",
+            "legendFormat": "P50 {{model_id}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(ai_video_shot_dispatch_latency_seconds_bucket[5m])) by (le, model_id))",
+            "legendFormat": "P95 {{model_id}}",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(ai_video_shot_dispatch_latency_seconds_bucket[5m])) by (le, model_id))",
+            "legendFormat": "P99 {{model_id}}",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {"defaults": {"unit": "s"}}
+      },
+      {
+        "id": 4,
+        "title": "Shot Generation Duration",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(ai_video_shot_generation_duration_seconds_bucket[5m])) by (le, model_id))",
+            "legendFormat": "P50 {{model_id}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(ai_video_shot_generation_duration_seconds_bucket[5m])) by (le, model_id))",
+            "legendFormat": "P95 {{model_id}}",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(ai_video_shot_generation_duration_seconds_bucket[5m])) by (le, model_id))",
+            "legendFormat": "P99 {{model_id}}",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {"defaults": {"unit": "s"}}
+      },
+      {
+        "id": 5,
+        "title": "Shot Fallbacks",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_shot_fallback_total[5m]) * 60",
+            "legendFormat": "{{from_model}} -> {{to_model}} ({{trigger}})",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Shot Timeouts",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_shot_timeout_total[5m]) * 60",
+            "legendFormat": "{{model_id}} ({{timeout_seconds}}s)",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Webhooks Received",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 24, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_webhook_received_total[5m]) * 60",
+            "legendFormat": "{{provider}} {{status}} dup={{duplicate}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Webhook Processing Latency",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 24, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(ai_video_webhook_processing_latency_seconds_bucket[5m])) by (le, provider))",
+            "legendFormat": "P95 {{provider}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {"defaults": {"unit": "s"}}
+      },
+      {
+        "id": 9,
+        "title": "Unrecognized Webhooks",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 32, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_webhook_unrecognized_total[5m]) * 60",
+            "legendFormat": "{{provider}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Dispatches In Flight",
+        "type": "timeseries",
+        "gridPos": {"x": 12, "y": 32, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "ai_video_dispatches_in_flight_gauge",
+            "legendFormat": "{{model_id}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Watchdog Checks",
+        "type": "timeseries",
+        "gridPos": {"x": 0, "y": 40, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(ai_video_watchdog_check_total[5m]) * 60",
+            "legendFormat": "{{result}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Watchdog Stuck Dispatches",
+        "type": "stat",
+        "gridPos": {"x": 12, "y": 40, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "ai_video_watchdog_stuck_dispatches_gauge",
+            "legendFormat": "{{model_id}} {{status}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 5},
+                {"color": "red", "value": 10}
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "time": {"from": "now-1h", "to": "now"},
+    "refresh": "10s"
+  }
+}

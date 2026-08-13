@@ -1,0 +1,40 @@
+# Production Dockerfile for AI Video FTE API
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Install dependencies
+COPY package.json package-lock.json* ./
+RUN npm ci
+
+# Copy source code and build
+COPY src ./src
+COPY config ./config
+COPY tsconfig.json ./
+COPY migrations ./migrations
+RUN npm run build
+
+# Production runtime
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+# Copy built artifacts and production dependencies
+COPY package.json package-lock.json* ./
+RUN npm ci --omit=dev
+
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/config ./config
+COPY --from=builder /app/migrations ./migrations
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001 -G nodejs && \
+    chown -R nodejs:nodejs /app
+USER nodejs
+
+# Expose ports
+EXPOSE 3000 9090
+
+# Run production server
+CMD ["node", "dist/main.js"]

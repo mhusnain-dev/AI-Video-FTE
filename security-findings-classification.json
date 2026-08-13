@@ -1,0 +1,94 @@
+{
+  "findings": [
+    {
+      "id": "TLS-001",
+      "category": "TLS/Certificate Handling",
+      "description": "Both vault-tls/ and nginx-tls/ directories are empty but mounted read-only in docker-compose. Nginx config expects certs at /etc/nginx/tls/fullchain.pem and privkey.pem. Vault config has tls_disable=true but TLS certs are mounted.",
+      "classification": "BLOCK_4_BLOCKER",
+      "rationale": "Production TLS certificates are completely missing. Nginx will fail to start without valid certs. Vault TLS is disabled but certs exist in mount config - inconsistent state."
+    },
+    {
+      "id": "TLS-002",
+      "category": "TLS/Certificate Handling",
+      "description": "Vault healthcheck uses 'vault status -tls-skip-verify' which bypasses TLS certificate validation.",
+      "classification": "BLOCK_4_BLOCKER",
+      "rationale": "TLS verification explicitly disabled in healthcheck. This defeats the purpose of TLS and allows MITM attacks on Vault communications."
+    },
+    {
+      "id": "SECRETS-001",
+      "category": "Secrets Exposure",
+      "description": ".gitignore does not ignore secrets/ directory - only ignores .vault-token. Plaintext secret files exist in secrets/ directory (postgres_password.txt, redis_password.txt, vault_token.txt, API keys).",
+      "classification": "BLOCK_4_BLOCKER",
+      "rationale": "Secrets directory is not gitignored. All production secrets stored as plaintext files in repo. These will be committed if not careful. Also .env.example exists which may reference these."
+    },
+    {
+      "id": "SECRETS-002",
+      "category": "Secrets Exposure",
+      "description": "Docker Compose defines secrets using 'file:' pointing to plaintext files in secrets/ directory instead of using Docker secrets or external secret managers.",
+      "classification": "REQUIRED_FOR_DEPLOYMENT",
+      "rationale": "File-based secrets in compose work for local dev but are not production-ready. Should use Docker secrets (swarm) or external secret manager (Vault, AWS Secrets Manager, etc.) before production deploy."
+    },
+    {
+      "id": "PORTS-001",
+      "category": "Exposed Internal Ports",
+      "description": "Postgres (5432), Redis (6379), Vault (8200/8201), API (3000/9090), Prometheus (9091), Grafana (3001), Alertmanager (9093) all expose ports to host (0.0.0.0). Only Nginx 80/443 should be exposed.",
+      "classification": "REQUIRED_FOR_DEPLOYMENT",
+      "rationale": "Internal services should not be accessible from host network. This is a configuration issue - remove 'ports:' for internal services, use internal network communication only. Nginx 80/443 exposure is correct for ingress."
+    },
+    {
+      "id": "AUTH-001",
+      "category": "Authentication/Authorization",
+      "description": "CSP header includes 'unsafe-inline' and 'unsafe-eval' for script-src, and 'unsafe-inline' for style-src. This weakens XSS protection significantly.",
+      "classification": "REQUIRED_FOR_DEPLOYMENT",
+      "rationale": "Production CSP should not allow unsafe-inline or unsafe-eval. Need to use nonces/hashes or remove inline scripts/styles. Can fix before deploy without blocking Block 4."
+    },
+    {
+      "id": "AUTH-002",
+      "category": "Authentication/Authorization",
+      "description": "Vault UI enabled (ui=true) and exposed on port 8200 to host network. No IP restrictions on Vault listener (0.0.0.0:8200).",
+      "classification": "REQUIRED_FOR_DEPLOYMENT",
+      "rationale": "Vault UI should not be exposed publicly in production. Should bind to internal network only or add auth proxy. Config change needed before production."
+    },
+    {
+      "id": "AUTH-003",
+      "category": "Authentication/Authorization",
+      "description": "Vault audit log file mode set to 0644 (world-readable). Audit logs contain sensitive access information.",
+      "classification": "REQUIRED_FOR_DEPLOYMENT",
+      "rationale": "Audit logs should be 0600 or 0640 at most. World-readable audit logs leak security events. Simple config fix before deploy."
+    },
+    {
+      "id": "AUTH-004",
+      "category": "Authentication/Authorization",
+      "description": "Vault listener has tls_disable=true but Vault address configured as https://vault:8200. Inconsistent TLS configuration.",
+      "classification": "REQUIRED_FOR_DEPLOYMENT",
+      "rationale": "Vault is configured to use HTTPS addresses but TLS is disabled. Must enable TLS with valid certs or use HTTP consistently. Config fix needed."
+    },
+    {
+      "id": "PROD-001",
+      "category": "Production vs Local Verification Risks",
+      "description": "Empty TLS directories with ro mounts mean self-signed certs would be used in production if any certs were present. Combined with -tls-skip-verify, this creates false sense of security.",
+      "classification": "BLOCK_4_BLOCKER",
+      "rationale": "The entire TLS setup is non-functional for production. Self-signed certs with skip-verify defeats TLS guarantees. Must have valid CA-signed certs and proper verification before Block 4 passes."
+    },
+    {
+      "id": "PROD-002",
+      "category": "Production vs Local Verification Risks",
+      "description": "Grafana admin password uses Docker secret (good) but GF_SECURITY_ADMIN_USER is hardcoded as 'admin' in compose.",
+      "classification": "INFORMATIONAL",
+      "rationale": "Admin username is not secret; password is properly secret-managed. Username 'admin' is common but not a security issue by itself."
+    },
+    {
+      "id": "PROD-003",
+      "category": "Production vs Local Verification Risks",
+      "description": "API service exposes port 9090 (metrics) to host in addition to 3000. Nginx restricts /metrics to RFC1918 IPs but direct API port bypasses this.",
+      "classification": "REQUIRED_FOR_DEPLOYMENT",
+      "rationale": "Metrics endpoint exposed directly on API port 9090 bypasses Nginx IP restrictions. Should remove 9090 from ports or bind to localhost only."
+    }
+  ],
+  "summary": {
+    "BLOCK_4_BLOCKER": 5,
+    "REQUIRED_FOR_DEPLOYMENT": 7,
+    "OUT_OF_SCOPE": 0,
+    "INFORMATIONAL": 1
+  }
+}

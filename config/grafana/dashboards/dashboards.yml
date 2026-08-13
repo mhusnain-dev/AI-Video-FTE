@@ -1,0 +1,16 @@
+# Grafana Dashboards Provisioning
+# Auto-loads all AI Video FTE dashboards
+
+apiVersion: 1
+
+providers:
+  - name: 'AI Video FTE Dashboards'
+    orgId: 1
+    folder: 'AI Video FTE'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: true

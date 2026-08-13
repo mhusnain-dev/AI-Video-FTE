@@ -1,0 +1,244 @@
+{
+  "service_architecture": {
+    "total_services": 9,
+    "service_list": [
+      "postgres",
+      "redis",
+      "vault",
+      "api",
+      "nginx",
+      "frontend",
+      "prometheus",
+      "grafana",
+      "alertmanager"
+    ],
+    "replication_services": [
+      "api",
+      "frontend"
+    ],
+    "singleton_services": [
+      "postgres",
+      "redis",
+      "vault",
+      "nginx",
+      "prometheus",
+      "grafana",
+      "alertmanager"
+    ]
+  },
+  "protocol_consistency": {
+    "vault_protocol": "https across all prod configs (vault.hcl lines 14-18, 46-47; docker-compose.prod.yaml lines 59-61; api env line 103)",
+    "api_vault_addr": "https://vault:8200 (docker-compose.prod.yaml line 103)",
+    "nginx_upstreams": "http (nginx.conf lines 83-87, 89-93 - both api_backend and frontend_backend use http://)",
+    "client_tls_verify": "vault uses -tls-skip-verify in healthcheck (docker-compose.prod.yaml line 73); api VAULT_ADDR is https but no client cert config visible; nginx does not proxy to vault"
+  },
+  "port_binding_analysis": {
+    "host_ports_exposed": [
+      "5432:5432 (postgres)",
+      "6379:6379 (redis)",
+      "8200:8200 (vault)",
+      "8201:8201 (vault cluster)",
+      "3000:3000 (api)",
+      "9090:9090 (api metrics)",
+      "80:80 (nginx)",
+      "443:443 (nginx)",
+      "9091:9090 (prometheus)",
+      "3001:3000 (grafana)",
+      "9093:9093 (alertmanager)"
+    ],
+    "unnecessary_exposures": [
+      "5432:5432 - postgres exposed to host (should be internal only; only api needs access)",
+      "6379:6379 - redis exposed to host (should be internal only; only api needs access)",
+      "8200:8200 - vault API exposed to host (consider restricting to internal or VPN)",
+      "8201:8201 - vault cluster exposed to host (internal only)",
+      "9090:9090 - api metrics exposed to host (duplicate with prometheus scrape via nginx /metrics)",
+      "3000:3000 - api exposed directly to host (nginx should be sole entry point)",
+      "9091:9090 - prometheus exposed to host (should be internal; grafana/alertmanager scrape internally)",
+      "3001:3000 - grafana exposed to host (should be behind nginx or VPN)",
+      "9093:9093 - alertmanager exposed to host (internal only)"
+    ],
+    "required_host_ports": [
+      "80:80 (nginx HTTP)",
+      "443:443 (nginx HTTPS)"
+    ]
+  },
+  "volume_architecture": {
+    "named_volumes": [
+      "postgres_data (/var/lib/postgresql/data)",
+      "redis_data (/data)",
+      "vault_data (/vault/data)",
+      "vault_logs (/vault/logs)",
+      "prometheus_data (/prometheus)",
+      "grafana_data (/var/lib/grafana)",
+      "alertmanager_data (/alertmanager)"
+    ],
+    "bind_mounts": [
+      "./migrations:/docker-entrypoint-initdb.d (postgres)",
+      "./config/vault.hcl:/vault/config/vault.hcl:ro (vault)",
+      "./config/vault-tls:/vault/tls:ro (vault)",
+      "./config/nginx.conf:/etc/nginx/nginx.conf:ro (nginx)",
+      "./config/nginx-tls:/etc/nginx/tls:ro (nginx) - EMPTY DIRECTORY",
+      "./frontend/dist:/usr/share/nginx/html:ro (nginx)",
+      "./config/prometheus.prod.yml:/etc/prometheus/prometheus.yml:ro (prometheus)",
+      "./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro (grafana)",
+      "./config/grafana/datasources:/etc/grafana/provisioning/datasources:ro (grafana)",
+      "./config/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro (alertmanager)"
+    ],
+    "volume_permissions_issues": [
+      "secrets/ directory files are 644 (should be 600 for production)",
+      "config/vault-tls/ca.key is 600 (good), vault.key is 600 (good)",
+      "config/nginx-tls/ empty - nginx will fail to start without TLS certificates",
+      "Docker volumes created by containers run as root; no explicit UID/GID mapping for non-root containers"
+    ]
+  },
+  "secret_management": {
+    "docker_secrets_defined": [
+      "postgres_password (file: ./secrets/postgres_password.txt)",
+      "redis_password (file: ./secrets/redis_password.txt)",
+      "vault_token (file: ./secrets/vault_token.txt)",
+      "elevenlabs_key (file: ./secrets/elevenlabs_key.txt)",
+      "veo_key (file: ./secrets/veo_key.txt)",
+      "runway_key (file: ./secrets/runway_key.txt)",
+      "luma_key (file: ./secrets/luma_key.txt)",
+      "grafana_password (file: ./secrets/grafana_password.txt)"
+    ],
+    "env_var_secrets": [
+      "POSTGRES_PASSWORD (used by postgres, api)",
+      "REDIS_PASSWORD (used by redis, api)",
+      "VAULT_TOKEN (used by api)",
+      "ELEVENLABS_API_KEY (used by api)",
+      "VEO_API_KEY (used by api)",
+      "RUNWAY_API_KEY (used by api)",
+      "LUMA_API_KEY (used by api)",
+      "ALERTMANAGER_WEBHOOK_URL (used by api)",
+      "ARCHIVE_BUCKET (used by api)",
+      "GF_SECURITY_ADMIN_PASSWORD_FILE (used by grafana)"
+    ],
+    "secret_file_requirements": [
+      "All 8 docker secrets must exist as files before docker-compose up",
+      "secrets/ directory must be in .gitignore",
+      "Placeholder values in elevenlabs_key.txt, veo_key.txt, runway_key.txt, luma_key.txt must be replaced",
+      "nginx TLS certificates required at ./config/nginx-tls/fullchain.pem and ./config/nginx-tls/privkey.pem (currently missing)"
+    ]
+  },
+  "runtime_contradictions": [
+    {
+      "location": "docker-compose.prod.yaml:63-64",
+      "issue": "Vault port 8200 exposed on host; vault container fails to start with 'address already in use' (observed in logs). Likely conflict with host process or duplicate binding.",
+      "severity": "blocking"
+    },
+    {
+      "location": "config/nginx.conf:120-121",
+      "issue": "nginx.conf references /etc/nginx/tls/fullchain.pem and /etc/nginx/tls/privkey.pem but config/nginx-tls/ directory is empty. Nginx will fail to start.",
+      "severity": "blocking"
+    },
+    {
+      "location": "docker-compose.prod.yaml:147-148",
+      "issue": "nginx depends_on frontend but frontend has no healthcheck. Nginx may start before frontend is ready.",
+      "severity": "warning"
+    },
+    {
+      "location": "docker-compose.prod.yaml:150-151",
+      "issue": "api depends_on vault with condition: service_healthy, but vault healthcheck uses 'vault status -tls-skip-verify' which requires vault to be unsealed. Vault starts sealed in production.",
+      "severity": "blocking"
+    },
+    {
+      "location": "docker-compose.prod.yaml:103",
+      "issue": "api uses VAULT_ADDR=https://vault:8200 but no VAULT_CACERT or client cert configuration. Node.js client may reject self-signed cert unless NODE_EXTRA_CA_CERTS is set.",
+      "severity": "warning"
+    },
+    {
+      "location": "docker-compose.prod.yaml:36",
+      "issue": "redis command uses --requirepass ${REDIS_PASSWORD} but redis healthcheck uses -a ${REDIS_PASSWORD}. If password contains special chars, shell escaping may differ.",
+      "severity": "info"
+    },
+    {
+      "location": "docker-compose.prod.yaml:114-116",
+      "issue": "api exposes ports 3000 and 9090 on host despite nginx being the ingress. Creates attack surface and port conflicts with dev stack.",
+      "severity": "warning"
+    },
+    {
+      "location": "docker-compose.yaml vs docker-compose.prod.yaml",
+      "issue": "dev and prod both bind 5432, 6379, 8200, 3000, 9090, 9091, 3001 on host. Cannot run simultaneously.",
+      "severity": "warning"
+    },
+    {
+      "location": "config/vault.hcl:14-18",
+      "issue": "Vault TLS listener requires client CA (tls_client_ca_file). API and other clients must present client certs, but no client certs are generated or distributed.",
+      "severity": "warning"
+    },
+    {
+      "location": "scripts/validate-deployment.sh:145",
+      "issue": "Validation accepts 'healthy' OR 'none' as passing. Services without healthchecks (frontend, nginx) false-pass.",
+      "severity": "warning"
+    },
+    {
+      "location": "docker-compose.prod.yaml:270-285",
+      "issue": "Docker secrets defined but .env.example references *_FILE variants. Compose does not automatically map docker secrets to env vars; application must read /run/secrets/ directly.",
+      "severity": "info"
+    }
+  ],
+  "healthcheck_coverage": {
+    "with_healthcheck": [
+      "postgres",
+      "redis",
+      "vault",
+      "api",
+      "prometheus",
+      "grafana",
+      "alertmanager"
+    ],
+    "without_healthcheck": [
+      "nginx",
+      "frontend"
+    ],
+    "validation_accepts": [
+      "healthy",
+      "none"
+    ]
+  },
+  "dev_prod_drift": [
+    "port conflicts: both stacks bind 5432, 6379, 8200, 3000, 9090, 9091, 3001 on host",
+    "volume conflicts: both use postgres_data, redis_data, prometheus_data, grafana_data volume names (different project prefixes: fte_ vs tmp_)",
+    "network conflicts: both create fte-network (different project labels: com.docker.compose.project=fte vs tmp)",
+    "protocol differences: dev uses VAULT_ADDR=http://vault:8200; prod uses https://vault:8200",
+    "vault mode: dev uses VAULT_DEV_ROOT_TOKEN_ID (unsealed dev mode); prod uses raft storage with TLS (sealed, needs init/unseal)",
+    "redis: dev no password; prod requires password",
+    "api: dev uses Dockerfile.dev with volume mounts; prod uses Dockerfile.prod",
+    "frontend: dev exposes 5173; prod behind nginx only",
+    "grafana: dev uses env password; prod uses docker secret file",
+    "prometheus: dev uses config/prometheus.yml; prod uses config/prometheus.prod.yml",
+    "nginx: absent in dev stack"
+  ],
+  "safe_startup_sequence": [
+    "1. Generate secrets: ./scripts/setup-secrets.sh",
+    "2. Generate nginx TLS certificates (Let's Encrypt or self-signed) in ./config/nginx-tls/",
+    "3. Start postgres and redis (no dependencies)",
+    "4. Start vault (depends on postgres_data volume for raft storage, but can start independently)",
+    "5. Initialize and unseal vault (manual or scripted)",
+    "6. Configure vault transit key 'biometric-encryption'",
+    "7. Start api (depends on postgres, redis, vault healthy+unsealed)",
+    "8. Start frontend (no hard deps, but api should be ready)",
+    "9. Start prometheus, alertmanager",
+    "10. Start grafana (depends on prometheus)",
+    "11. Start nginx (depends on api and frontend)",
+    "Critical: vault must be unsealed before api healthcheck passes. Add vault unseal step to deployment automation."
+  ],
+  "evidence_sources": [
+    "docker-compose.prod.yaml:4-268",
+    "docker-compose.yaml:4-155",
+    "config/vault.hcl:1-54",
+    "config/nginx.conf:1-227",
+    "scripts/setup-secrets.sh:1-198",
+    "scripts/validate-deployment.sh:1-179",
+    "docker ps -a output",
+    "docker network ls output",
+    "docker volume ls output",
+    "ss -tlnp port scan output",
+    "docker logs fte-vault-1 output",
+    "docker network inspect fte_fte-network output",
+    "ls -la config/vault-tls/ output",
+    "ls -la config/nginx-tls/ output",
+    "ls -la secrets/ output"
+  ]
+}

@@ -1,0 +1,146 @@
+# AI Video FTE - Development Configuration
+# Copy to config/development.yaml and customize
+
+postgres:
+  host: "localhost"
+  port: 5433
+  database: "ai_video_fte_dev"
+  user: "postgres"
+  password: "postgres"
+  ssl: false
+  poolSize: 20
+
+redis:
+  host: "localhost"
+  port: 6380
+  db: 0
+  connectionPoolSize: 10
+
+vault:
+  address: "http://localhost:8201"
+  token: "dev-root-token"
+  transitKeyName: "biometric-encryption-dev"
+  rotationIntervalDays: 90
+
+storyIngestion:
+  maxDecompositionTimeMs: 10000
+  maxShotsPerStory: 100
+
+modelRegistry:
+  refreshIntervalMs: 300000
+  models:
+    - id: "veo3-low"
+      name: "Veo 3 Low Quality"
+      provider: "google"
+      maxResolution: "1080p"
+      maxDurationSeconds: 10
+      supportedAspectRatios: ["16:9", "9:16", "1:1", "4:5"]
+      supportedRegions: ["us", "eu", "asia"]
+      costPerSecondUsd: 0.00
+      costCurrency: "USD"
+      capabilities: ["text_to_video", "image_to_video", "reference_conditioning"]
+      defaultTimeoutSeconds: 120
+    - id: "veo3-high"
+      name: "Veo 3 High Quality"
+      provider: "google"
+      maxResolution: "4K"
+      maxDurationSeconds: 10
+      supportedAspectRatios: ["16:9", "9:16", "1:1", "4:5"]
+      supportedRegions: ["us", "eu", "asia"]
+      costPerSecondUsd: 0.05
+      costCurrency: "USD"
+      capabilities: ["text_to_video", "image_to_video", "reference_conditioning", "native_audio", "high_fidelity"]
+      defaultTimeoutSeconds: 180
+    - id: "runway-gen3"
+      name: "Runway Gen-3 Alpha"
+      provider: "runway"
+      maxResolution: "1080p"
+      maxDurationSeconds: 10
+      supportedAspectRatios: ["16:9", "9:16"]
+      supportedRegions: ["us", "eu"]
+      costPerSecondUsd: 0.08
+      costCurrency: "USD"
+      capabilities: ["text_to_video", "image_to_video", "reference_conditioning"]
+      defaultTimeoutSeconds: 180
+    - id: "luma-ray2"
+      name: "Luma Ray 2"
+      provider: "luma"
+      maxResolution: "1080p"
+      maxDurationSeconds: 10
+      supportedAspectRatios: ["16:9", "9:16", "1:1"]
+      supportedRegions: ["us"]
+      costPerSecondUsd: 0.03
+      costCurrency: "USD"
+      capabilities: ["text_to_video", "image_to_video", "fast_generation"]
+      defaultTimeoutSeconds: 120
+
+router:
+  systemDefaultPriority: ["veo3-low", "veo3-high", "runway-gen3", "luma-ray2"]
+  eligibilityCheckEnabled: true
+
+admission:
+  moderation:
+    provider: "built-in"
+    categories: ["violence", "sexual_content", "hate", "pii", "csam"]
+    threshold: 0.8
+  sacredGuard:
+    visualSimilarityThreshold: 0.775
+    perModelThresholds:
+      veo3-low: 0.78
+      veo3-high: 0.77
+      runway-gen3: 0.79
+      luma-ray2: 0.80
+  costGuard:
+    perModelEstimates:
+      veo3-low: 0.00
+      veo3-high: 0.05
+      runway-gen3: 0.08
+      luma-ray2: 0.03
+    userBudgetUsd: 100.00
+    projectCeilingUsd: 500.00
+    committedSpendLimitUsd: 50.00
+    singleShotDriftThreshold: 0.50
+    rollingAverageDriftThreshold: 0.20
+  rateLimit:
+    perModel:
+      veo3-low: 10
+      veo3-high: 5
+      runway-gen3: 5
+      luma-ray2: 20
+    perUser: 20
+    global: 100
+    perProjectOverrides: {}
+  auditEnabled: true
+
+dispatch:
+  defaultTimeouts:
+    veo3-low: 120
+    veo3-high: 180
+    runway-gen3: 180
+    luma-ray2: 120
+  watchdogPollIntervalMs: 30000
+  watchdogMaxWaitMs: 600000
+  maxFallbackAttempts: 3
+
+faceLock:
+  defaultPerModelThresholds:
+    veo3-low: 0.82
+    veo3-high: 0.80
+    runway-gen3: 0.85
+    luma-ray2: 0.78
+  maxRetries: 2
+  perModelCharacterThresholds: {}
+  perModelCharacterRetries: {}
+
+merger:
+  defaultTransition:
+    type: "crossfade"
+    durationSeconds: 0.5
+  ffmpegPath: "ffmpeg"
+  supportedFormats: ["mp4"]
+  maxMergeTimeMs: 300000
+
+observability:
+  metricsPort: 9090
+  healthCheckIntervalMs: 30000
+  auditRetentionYears: 7

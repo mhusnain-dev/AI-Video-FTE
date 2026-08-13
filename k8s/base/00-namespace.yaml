@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fte-production
+  labels:
+    name: fte-production
+    environment: production

@@ -1,0 +1,110 @@
+{
+  "auditor": "production-acceptance",
+  "cluster_results": {
+    "governance_clarification": {
+      "pass": true,
+      "evidence": [
+        "spec.md:461-466 — CL-024 (Vault TLS Protocol = HTTPS/TLS with self-signed certs for verification) formally recorded in Clarification Log with governance rationale citing CLAUDE.md §8 Specification Stability Rule",
+        "spec.md:470-475 — CL-025 (Dev/Prod Coexistence = different host ports for dev, offset +1) formally recorded in Clarification Log with governance rationale citing CLAUDE.md §8",
+        "progress.md:75-76 — CL-024 and CL-025 recorded in 'Approved Decisions' section with dates and rationale",
+        "progress.md:17-21 — Block 4 status explicitly states 'CLARIFICATION RESOLVED — IMPLEMENTATION NOT YET AUTHORIZED'",
+        "BLOCK_4_CLARIFICATION_CLOSURE_REPORT.md:48-64 — Governance basis documented citing CLAUDE.md §8, §9, §16; both decisions classified as behavioral changes requiring Phase 4 Clarification"
+      ],
+      "gaps": [
+        "Implementation NOT YET AUTHORIZED — Principal build authorization still required before any Block 4 implementation begins (progress.md:87-90, BLOCK_4_CLARIFICATION_CLOSURE_REPORT.md:146-148)"
+      ]
+    },
+    "vault_tls_pki": {
+      "pass": false,
+      "evidence": [
+        "vault.hcl:14-18 — Listener configured with tls_disable=false, tls_cert_file=/vault/tls/vault.crt, tls_key_file=/vault/tls/vault.key, tls_client_ca_file=/vault/tls/ca.crt",
+        "vault.hcl:46-47 — api_addr=https://vault:8200, cluster_addr=https://vault:8201 — config declares HTTPS",
+        "docker-compose.prod.yaml:73 — Vault healthcheck uses 'vault status -tls-skip-verify' (HTTPS flag)",
+        "docker-compose.prod.yaml:103 — API service VAULT_ADDR=https://vault:8200 matches listener",
+        "config/vault-tls/ — Self-signed certs PRESENT: ca.crt (1147B), vault.crt (1147B), vault.key (1700B, 600 perms)"
+      ],
+      "gaps": [
+        "config/vault-tls/ca.key (CA PRIVATE KEY, 1704B, 600 perms) — NOT REMOVED post-generation (setup-secrets.sh:131 attempts cleanup but ca.key persists) — CRITICAL PKI VIOLATION",
+        "config/vault-tls/vault.csr (956B, 664 perms) — CSR NOT CLEANED UP (setup-secrets.sh:131 rm -f failed or not executed)",
+        "config/vault-tls/ca.srl (41B, 664 perms) — SRL NOT CLEANED UP (setup-secrets.sh:131 rm -f failed or not executed)",
+        "docker-compose.prod.yaml:73 — Healthcheck uses -tls-skip-verify instead of proper CA verification — no TLS certificate validation",
+        "src/shared/vault.ts:24-31 — API client uses VAULT_ADDR but no VAULT_CACERT or NODE_EXTRA_CA_CERTS configured for client cert verification"
+      ]
+    },
+    "nginx_tls_ingress": {
+      "pass": false,
+      "evidence": [
+        "nginx.conf:120-121 — References ssl_certificate /etc/nginx/tls/fullchain.pem and ssl_certificate_key /etc/nginx/tls/privkey.pem",
+        "nginx.conf:174-177 — /metrics IP restriction correctly allows RFC1918 (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) and denies all else"
+      ],
+      "gaps": [
+        "config/nginx-tls/ — EMPTY DIRECTORY (ls -la shows no files) — nginx WILL FAIL TO START without fullchain.pem and privkey.pem",
+        "nginx.conf:139 — CSP header INSECURE: contains 'unsafe-inline' and 'unsafe-eval' in script-src and style-src — violates secure CSP best practice"
+      ]
+    },
+    "secrets_security": {
+      "pass": false,
+      "evidence": [
+        "docker-compose.prod.yaml:269-285 — 8 Docker secrets defined with file: references (postgres_password, redis_password, vault_token, elevenlabs_key, veo_key, runway_key, luma_key, grafana_password)",
+        "secrets/ directory exists with 8 files"
+      ],
+      "gaps": [
+        ".gitignore — secrets/ MISSING (grep confirms NOT FOUND) — all 8 secret files at commit risk",
+        ".gitignore — config/vault-tls/ MISSING (grep confirms NOT FOUND) — CA key, certs at commit risk",
+        "secrets/*.txt permissions — ALL 664 (world-readable) instead of 600 (stat output confirms)",
+        "config/vault-tls/ca.crt, ca.srl, vault.crt, vault.csr — 664 permissions instead of 600 (stat output confirms)",
+        "docker-compose.prod.yaml:92-110 — Services use ${POSTGRES_PASSWORD}, ${REDIS_PASSWORD}, ${VAULT_TOKEN}, ${ELEVENLABS_API_KEY}, etc. as env vars DIRECTLY — bypasses Docker secrets mechanism (should read from /run/secrets/)",
+        "secrets/elevenlabs_key.txt — 'YOUR_ELEVENLABS_API_KEY_HERE' (placeholder)",
+        "secrets/veo_key.txt — 'YOUR_VEO_API_KEY_HERE' (placeholder)",
+        "secrets/runway_key.txt — 'YOUR_RUNWAY_API_KEY_HERE' (placeholder)",
+        "secrets/luma_key.txt — 'YOUR_LUMA_API_KEY_HERE' (placeholder)",
+        "vault.hcl:50 — ui = true (Vault UI ENABLED) bound to 0.0.0.0:8200 with host port 8200 exposed — PUBLIC ACCESS to Vault management UI",
+        "docker-compose.prod.yaml:37, 46, 63-64, 114-116, 187, 211, 238 — 7 unnecessary host ports exposed: 5432 (postgres), 6379 (redis), 8200/8201 (vault), 3000/9090 (api), 9091 (prometheus), 3001 (grafana), 9093 (alertmanager)"
+      ]
+    },
+    "deployment_operations": {
+      "pass": false,
+      "evidence": [
+        "docker-compose.prod.yaml:117-123 — api depends_on postgres, redis, vault with condition: service_healthy",
+        "production-readiness-audit.json:213-226 — Safe startup sequence documented (steps 1-11)"
+      ],
+      "gaps": [
+        "docker-compose.prod.yaml:72-76 — Vault healthcheck passes when SEALED (greps for 'Sealed|Initialized'); api depends_on vault:healthy but Vault starts SEALED in production — STARTUP SEQUENCE BLOCKED",
+        "docker-compose.prod.yaml:150-151, 210-211 — NO Vault unseal step before api depends_on (requires init/unseal automation)",
+        "docker-compose.prod.yaml:140-162 (nginx), 164-181 (frontend) — nginx and frontend LACK healthchecks (only 7 of 9 services have healthchecks)",
+        "validate-deployment.sh:144-145 — health == 'healthy' || health == 'none' ACCEPTS 'none' as passing — 5 FALSE POSITIVES (nginx, frontend, and any without healthcheck)",
+        "docker-compose.yaml vs docker-compose.prod.yaml — Dev ports NOT OFFSET (+1): both bind 5432, 6379, 8200, 3000, 9090, 9091, 3001 — CANNOT RUN SIMULTANEOUSLY",
+        "docker-compose.prod.yaml:63-64 — Vault port 8200 exposed on host; 'address already in use' collision observed in logs (production-readiness-audit.json:125-129)"
+      ]
+    },
+    "integration_regression": {
+      "pass": false,
+      "evidence": [
+        "BLOCK_4_BUILD_READINESS_GATE.md:33-58 — 13 MUST-FIX BEFORE BUILD items identified with evidence synthesis",
+        "BLOCK_4_BUILD_READINESS_GATE.md:50-55 — 2 MUST DECIDE BY PRINCIPAL items (Vault TLS protocol, Dev/Prod coexistence) — BOTH RESOLVED via CL-024, CL-025",
+        "progress.md:152-153 — All 248 tests pass; Phase 7 and 8 implementation complete"
+      ],
+      "gaps": [
+        "13 MUST-FIX items NOT YET IMPLEMENTED — awaiting Principal Build Authorization (BLOCK_4_CLARIFICATION_CLOSURE_REPORT.md:109-129)",
+        "No tests cover the 13 infrastructure/security changes (port bindings, healthchecks, secret permissions, TLS cert generation, Vault unseal, validation script fix)",
+        ".github/workflows/ci.yaml — CI runs typecheck/lint/test but validate-deployment.sh NOT integrated in CI pipeline"
+      ]
+    }
+  },
+  "all_clusters_pass": false,
+  "blocking_gaps": [
+    "CLUSTER 2 (Vault TLS/PKI): CA private key (ca.key) not removed from config/vault-tls/; vault.csr and ca.srl not cleaned up; healthcheck uses -tls-skip-verify instead of proper verification; API client lacks CA cert config",
+    "CLUSTER 3 (nginx TLS): config/nginx-tls/ EMPTY — no fullchain.pem/privkey.pem → nginx FAILS TO START; CSP headers contain unsafe-inline/unsafe-eval",
+    "CLUSTER 4 (Secrets/Security): secrets/ and config/vault-tls/ missing from .gitignore; all secret files 664 not 600; Docker secrets defined but compose uses ${VAR} env vars bypassing secrets mechanism; 4 placeholder API keys; Vault UI enabled (ui=true) on public port; 7 unnecessary host ports exposed",
+    "CLUSTER 5 (Deployment/Ops): Vault unseal step missing before api depends_on — startup BLOCKED (Vault starts sealed); 2 services (nginx, frontend) lack healthchecks; validation script accepts 'none' as healthy (5 false positives); dev/prod port conflicts not resolved (dev ports not offset +1); Vault port 8200 host collision",
+    "CLUSTER 6 (Integration/Regression): 13 MUST-FIX items not implemented; no tests for infrastructure changes; validation script not in CI"
+  ],
+  "degraded_but_acceptable": [
+    "CLUSTER 1 (Governance/Clarification): PASS — CL-024 and CL-025 formally recorded and approved; Specification Stability Rule satisfied; no silent behavioral changes; invariants preserved. ONLY GAP: Build authorization not yet granted (expected at this gate)",
+    "Vault TLS protocol decision (CL-024) and Dev/Prod coexistence (CL-025) — Principal decisions made and recorded; implementation pending authorization",
+    "Vault mTLS client cert configuration (VAULT_CACERT/NODE_EXTRA_CA_CERTS) — SAFE TO DEFER per BLOCK_4_BUILD_READINESS_GATE.md #17 (post-build hardening)",
+    "nginx upstream for Vault external access — SAFE TO DEFER per BLOCK_4_BUILD_READINESS_GATE.md #15 (optional enhancement)"
+  ],
+  "final_verdict": "NOT_READY_PREREQUISITES_REMAIN",
+  "evidence_summary": "4 of 6 clusters FAIL with hard blockers. Vault TLS/PKI: ca.key (1704B) persists in config/vault-tls/ (CRITICAL PKI violation); vault.csr (956B) and ca.srl (41B) not cleaned; healthcheck uses -tls-skip-verify (docker-compose.prod.yaml:73); API lacks client CA config (src/shared/vault.ts:24-31). nginx TLS: config/nginx-tls/ EMPTY → nginx cannot start (nginx.conf:120-121); CSP permits unsafe-inline/eval (nginx.conf:139). Secrets: .gitignore lacks secrets/ and config/vault-tls/; all 8 secret files 664 (stat); compose uses ${VAR} not Docker secrets (docker-compose.prod.yaml:92-110); 4 placeholder keys (secrets/*_key.txt); Vault UI enabled on public port (vault.hcl:50, docker-compose.prod.yaml:63-64); 7 internal services exposed on host. Deployment: Vault unseal missing → api depends_on vault:healthy but Vault starts sealed (docker-compose.prod.yaml:72-76, 117-123); nginx/frontend lack healthchecks; validation accepts 'none' (validate-deployment.sh:144-145); dev/prod port collision on 7 ports; Vault 8200 host collision. Integration: 13 MUST-FIX items unimplemented; no infrastructure tests; validate-deployment.sh not in CI. ONLY Governance/Clarification cluster PASSES (CL-024, CL-025 recorded per CLAUDE.md §8-9)."
+}

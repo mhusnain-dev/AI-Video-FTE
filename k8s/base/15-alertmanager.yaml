@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: fte-production
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.26
+          args:
+            - '--config.file=/etc/alertmanager/alertmanager.yml'
+            - '--storage.path=/alertmanager'
+          ports:
+            - containerPort: 9093
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager
+            - name: data
+              mountPath: /alertmanager
+            - name: secrets
+              mountPath: /etc/alertmanager/secrets
+              readOnly: true
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9093
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9093
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: alertmanager-config
+        - name: data
+          emptyDir: {}
+        - name: secrets
+          secret:
+            secretName: alertmanager-secrets
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: fte-production
+spec:
+  ports:
+    - port: 9093
+      targetPort: 9093
+  selector:
+    app: alertmanager
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-secrets
+  namespace: fte-production
+type: Opaque
+stringData:
+  # Replace these with actual values
+  slack_webhook: "https://hooks.slack.com/services/CHANGE_ME"
+  pagerduty_key: "CHANGE_ME"
+  pagerduty_security_key: "CHANGE_ME"
+  pagerduty_platform_key: "CHANGE_ME"

@@ -1,0 +1,89 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: fte-production
+
+resources:
+  - ../base
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: ai-video-fte-api
+        namespace: fte-production
+      spec:
+        replicas: 5
+    target:
+      kind: Deployment
+      name: ai-video-fte-api
+
+  - patch: |-
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: postgres
+        namespace: fte-production
+      spec:
+        template:
+          spec:
+            containers:
+              - name: postgres
+                resources:
+                  requests:
+                    memory: "2Gi"
+                    cpu: "1000m"
+                  limits:
+                    memory: "4Gi"
+                    cpu: "2000m"
+    target:
+      kind: StatefulSet
+      name: postgres
+
+  - patch: |-
+      apiVersion: apps/v1
+      kind: StatefulSet
+      metadata:
+        name: vault
+        namespace: fte-production
+      spec:
+        replicas: 5
+    target:
+      kind: StatefulSet
+      name: vault
+
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: prometheus
+        namespace: fte-production
+      spec:
+        template:
+          spec:
+            containers:
+              - name: prometheus
+                resources:
+                  requests:
+                    memory: "2Gi"
+                    cpu: "1000m"
+                  limits:
+                    memory: "4Gi"
+                    cpu: "2000m"
+    target:
+      kind: Deployment
+      name: prometheus
+
+configMapGenerator:
+  - name: ai-video-fte-config
+    behavior: merge
+    literals:
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+
+images:
+  - name: ghcr.io/mhusnain-dev/ai-video-fte/api
+    newTag: v1.0.0
+  - name: ghcr.io/mhusnain-dev/ai-video-fte/frontend
+    newTag: v1.0.0
