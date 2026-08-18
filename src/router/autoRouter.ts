@@ -184,6 +184,39 @@ export async function recordDispatchAttempt(
 }
 
 /**
+ * Get model eligibility for a shot (for frontend eligibility check)
+ */
+export async function getModelEligibility(
+  shotId: string
+): Promise<{ modelId: string; eligible: boolean; reason?: string }[]> {
+  const shotResult = await query(
+    `SELECT s.*, st.brief as story_brief FROM shots s
+     JOIN stories st ON s.story_id = st.id
+     WHERE s.id = $1`,
+    [shotId]
+  );
+
+  if (shotResult.rows.length === 0) {
+    return [];
+  }
+
+  const shot = shotResult.rows[0];
+  const requirements: ShotRequirements = {
+    resolution: shot.resolution as Resolution,
+    aspectRatio: shot.aspectRatio as AspectRatio,
+    durationSeconds: shot.duration_seconds,
+    requiredCapabilities: shot.required_capabilities as ModelCapability[],
+  };
+
+  const allModels = await getEligibleModels(requirements);
+  return allModels.map(model => ({
+    modelId: model.id,
+    eligible: true,
+    reason: undefined,
+  }));
+}
+
+/**
  * Get dispatch history for a shot
  */
 export async function getDispatchHistory(shotId: string): Promise<Array<{

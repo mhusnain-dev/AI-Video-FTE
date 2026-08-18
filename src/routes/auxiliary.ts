@@ -6,6 +6,8 @@
 import express, { Request, Response } from 'express';
 import { param, body, validationResult } from 'express-validator';
 import { query } from '../shared/db.js';
+import { approveMerge } from '../ingestion/storyService.js';
+import { getModelEligibility } from '../router/autoRouter.js';
 
 const router = express.Router();
 
@@ -435,6 +437,59 @@ router.get(
     } catch (error) {
       console.error('Failed to get story events:', error);
       res.json({ events: [] });
+    }
+  }
+);
+
+// ============================================
+// approveMerge - Fix path mount for frontend
+// ============================================
+
+/**
+ * POST /api/stories/:storyId/approve-merge
+ * Frontend calls this path but ingestionRoutes only has it at /stories/:id/approve-merge
+ */
+router.post(
+  '/stories/:storyId/approve-merge',
+  [param('storyId').isUUID()],
+  validate,
+  async (req: Request, res: Response) => {
+    const { storyId } = req.params;
+    try {
+      await approveMerge(storyId as string);
+      res.json({ success: true, status: 'merging' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message.includes('not found') || message.includes('status')) {
+        return res.status(400).json({ error: message });
+      }
+      console.error('Failed to approve merge:', error);
+      res.status(500).json({ error: 'Failed to approve merge' });
+    }
+  }
+);
+
+// ============================================
+// Model Eligibility - Fix path mount for frontend
+// ============================================
+
+/**
+ * GET /api/router/models/eligibility?shot=<shotId>
+ * Frontend calls this path but routerRoutes only has it at /router/models/eligibility
+ */
+router.get(
+  '/router/models/eligibility',
+  async (req: Request, res: Response) => {
+    const { shot } = req.query;
+    if (!shot) {
+      return res.status(400).json({ error: 'shot parameter required' });
+    }
+    try {
+      const eligibility = await getModelEligibility(shot as string);
+      res.json(eligibility);
+    } catch (error) {
+      console.error('Failed to get model eligibility:', error);
+      res.status(500).json({ error: 'Failed to get model eligibility' });
     }
   }
 );

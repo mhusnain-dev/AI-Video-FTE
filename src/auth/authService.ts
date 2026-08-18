@@ -85,7 +85,7 @@ export async function registerUser(email: string, password: string): Promise<Aut
  * Login existing user
  * Finds user by email, compares password, returns JWT
  */
-export async function loginUser(email: string, password: string): Promise<AuthTokens & { pending?: boolean; expired?: boolean }> {
+export async function loginUser(email: string, password: string): Promise<AuthTokens & { pending?: boolean; expired?: boolean; revoked?: boolean }> {
   const result = await query<{ id: string; email: string; password_hash: string; created_at: Date; role: string; status: string; access_expires_at: Date | null }>(
     'SELECT id, email, password_hash, created_at, role, status, access_expires_at FROM users WHERE email = $1',
     [email.toLowerCase()]

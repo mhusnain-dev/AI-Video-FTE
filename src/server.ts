@@ -37,6 +37,8 @@ import settingsRoutes from './settings/settingsRoutes.js';
 import feedbackRoutes from './feedback/feedbackRoutes.js';
 import promptReviewRoutes from './generation/promptReviewRoutes.js';
 import adminRoutes from './admin/adminRoutes.js';
+import preferenceRoutes from './preferences/preferenceRoutes.js';
+import projectSettingsRoutes from './projects/projectSettingsRoutes.js';
 import { authMiddleware, adminMiddleware } from './auth/authMiddleware.js';
 
 const app = express();
@@ -105,6 +107,10 @@ app.use('/auth', authRoutes);
 app.use('/api/settings', authMiddleware, settingsRoutes);
 app.use('/api/stories', authMiddleware, feedbackRoutes);
 app.use('/api/stories', authMiddleware, promptReviewRoutes);
+
+// User Preferences & Project Settings
+app.use('/api', authMiddleware, preferenceRoutes);
+app.use('/api', authMiddleware, projectSettingsRoutes);
 
 // Admin routes — require JWT + admin role
 app.use('/admin', authMiddleware, adminMiddleware, adminRoutes);

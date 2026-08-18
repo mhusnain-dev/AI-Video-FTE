@@ -41,7 +41,8 @@ router.post('/approve/:id',
   async (req: Request, res: Response) => {
     try {
       const { durationHours } = req.body;
-      await adminService.approveUser(req.user!.id, req.params.id, durationHours);
+      const userId = req.params.id as string;
+      await adminService.approveUser(req.user!.id, userId, durationHours);
       res.json({ data: { success: true, message: `User approved for ${durationHours} hours` } });
     } catch (error) {
       console.error('Approve user error:', error);
@@ -56,7 +57,8 @@ router.post('/reject/:id',
   validate,
   async (req: Request, res: Response) => {
     try {
-      await adminService.rejectUser(req.user!.id, req.params.id);
+      const userId = req.params.id as string;
+      await adminService.rejectUser(req.user!.id, userId);
       res.json({ data: { success: true, message: 'User rejected and removed' } });
     } catch (error) {
       console.error('Reject user error:', error);
@@ -71,7 +73,8 @@ router.post('/revoke/:id',
   validate,
   async (req: Request, res: Response) => {
     try {
-      await adminService.revokeAccess(req.user!.id, req.params.id);
+      const userId = req.params.id as string;
+      await adminService.revokeAccess(req.user!.id, userId);
       res.json({ data: { success: true, message: 'User access revoked' } });
     } catch (error) {
       console.error('Revoke access error:', error);
@@ -87,7 +90,8 @@ router.post('/extend/:id',
   async (req: Request, res: Response) => {
     try {
       const { durationHours } = req.body;
-      await adminService.extendAccess(req.user!.id, req.params.id, durationHours);
+      const userId = req.params.id as string;
+      await adminService.extendAccess(req.user!.id, userId, durationHours);
       res.json({ data: { success: true, message: `Access extended by ${durationHours} hours` } });
     } catch (error) {
       console.error('Extend access error:', error);
@@ -102,7 +106,8 @@ router.delete('/users/:id',
   validate,
   async (req: Request, res: Response) => {
     try {
-      await adminService.deleteUser(req.user!.id, req.params.id);
+      const userId = req.params.id as string;
+      await adminService.deleteUser(req.user!.id, userId);
       res.json({ data: { success: true, message: 'User deleted' } });
     } catch (error) {
       console.error('Delete user error:', error);
