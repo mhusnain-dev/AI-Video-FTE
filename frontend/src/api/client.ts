@@ -13,7 +13,7 @@ class ApiClient {
       headers: {
         'Content-Type': 'application/json',
       },
-      timeout: 30000,
+      timeout: 60000,
     });
 
     this.client.interceptors.request.use(
@@ -166,6 +166,11 @@ class ApiClient {
   // ============================================
   // Merge & Delivery
   // ============================================
+  async approveMerge(storyId: string): Promise<ApiResponse<any>> {
+    const response = await this.client.post<ApiResponse<any>>(`/api/stories/${storyId}/approve-merge`);
+    return response.data;
+  }
+
   async mergeStory(storyId: string, options?: { resolution?: string; transition?: any }): Promise<ApiResponse<any>> {
     const response = await this.client.post<ApiResponse<any>>(`/api/merger/merge`, { storyId, ...options });
     return response.data;
@@ -292,6 +297,115 @@ class ApiClient {
     };
 
     return eventSource;
+  }
+
+  // ============================================
+  // Auth
+  // ============================================
+  async login(email: string, password: string): Promise<ApiResponse<{ token: string; user: { id: string; email: string; role: string; status: string; accessExpiresAt: string | null }; pending?: boolean; expired?: boolean; revoked?: boolean }>> {
+    const response = await this.client.post<ApiResponse<{ token: string; user: { id: string; email: string; role: string; status: string; accessExpiresAt: string | null }; pending?: boolean; expired?: boolean; revoked?: boolean }>>('/auth/login', { email, password });
+    return response.data;
+  }
+
+  async register(email: string, password: string): Promise<ApiResponse<{ token: string; user: { id: string; email: string; role: string; status: string; accessExpiresAt: string | null } }>> {
+    const response = await this.client.post<ApiResponse<{ token: string; user: { id: string; email: string; role: string; status: string; accessExpiresAt: string | null } }>>('/auth/register', { email, password });
+    return response.data;
+  }
+
+  async getMe(): Promise<ApiResponse<{ id: string; email: string; role: string; status: string; accessExpiresAt: string | null }>> {
+    const response = await this.client.get<ApiResponse<{ id: string; email: string; role: string; status: string; accessExpiresAt: string | null }>>('/auth/me');
+    return response.data;
+  }
+
+  async forgotPassword(email: string): Promise<ApiResponse<{ message: string }>> {
+    const response = await this.client.post<ApiResponse<{ message: string }>>('/auth/forgot-password', { email });
+    return response.data;
+  }
+
+  async resetPassword(token: string, password: string): Promise<ApiResponse<{ message: string }>> {
+    const response = await this.client.post<ApiResponse<{ message: string }>>('/auth/reset-password', { token, password });
+    return response.data;
+  }
+
+  // ============================================
+  // Admin
+  // ============================================
+  async listUsers(status?: string): Promise<ApiResponse<{ users: any[] }>> {
+    const params = status ? { status } : {};
+    const response = await this.client.get<ApiResponse<{ users: any[] }>>('/admin/users', { params });
+    return response.data;
+  }
+
+  async approveUser(userId: string, durationHours: number): Promise<ApiResponse<{ success: boolean; message: string }>> {
+    const response = await this.client.post<ApiResponse<{ success: boolean; message: string }>>(`/admin/approve/${userId}`, { durationHours });
+    return response.data;
+  }
+
+  async rejectUser(userId: string): Promise<ApiResponse<{ success: boolean; message: string }>> {
+    const response = await this.client.post<ApiResponse<{ success: boolean; message: string }>>(`/admin/reject/${userId}`);
+    return response.data;
+  }
+
+  async revokeUser(userId: string): Promise<ApiResponse<{ success: boolean; message: string }>> {
+    const response = await this.client.post<ApiResponse<{ success: boolean; message: string }>>(`/admin/revoke/${userId}`);
+    return response.data;
+  }
+
+  async extendUser(userId: string, durationHours: number): Promise<ApiResponse<{ success: boolean; message: string }>> {
+    const response = await this.client.post<ApiResponse<{ success: boolean; message: string }>>(`/admin/extend/${userId}`, { durationHours });
+    return response.data;
+  }
+
+  async deleteUser(userId: string): Promise<ApiResponse<{ success: boolean; message: string }>> {
+    const response = await this.client.delete<ApiResponse<{ success: boolean; message: string }>>(`/admin/users/${userId}`);
+    return response.data;
+  }
+
+  async getAuditLog(limit?: number, offset?: number): Promise<ApiResponse<{ auditLog: any[] }>> {
+    const params: Record<string, number> = {};
+    if (limit) params.limit = limit;
+    if (offset) params.offset = offset;
+    const response = await this.client.get<ApiResponse<{ auditLog: any[] }>>('/admin/audit', { params });
+    return response.data;
+  }
+
+  // ============================================
+  // Prompt Review
+  // ============================================
+  async getPromptReview(storyId: string): Promise<ApiResponse<{ prompt: string; warnings: string[]; sanitized: boolean }>> {
+    const response = await this.client.post<ApiResponse<{ prompt: string; warnings: string[]; sanitized: boolean }>>(`/api/stories/${storyId}/prompt-review`);
+    return response.data;
+  }
+
+  async approvePrompt(storyId: string, prompt: string): Promise<ApiResponse<{ success: boolean }>> {
+    const response = await this.client.post<ApiResponse<{ success: boolean }>>(`/api/stories/${storyId}/prompt-approve`, { prompt });
+    return response.data;
+  }
+
+  // ============================================
+  // Feedback
+  // ============================================
+  async submitFeedback(storyId: string, data: { rating: number; comment?: string; flagReason?: string }): Promise<ApiResponse<{ success: boolean }>> {
+    const response = await this.client.post<ApiResponse<{ success: boolean }>>(`/api/stories/${storyId}/feedback`, data);
+    return response.data;
+  }
+
+  // ============================================
+  // Preferences
+  // ============================================
+  async getUserPreferences(userId: string): Promise<ApiResponse<Record<string, unknown>>> {
+    const response = await this.client.get<ApiResponse<Record<string, unknown>>>(`/api/users/${userId}/preferences`);
+    return response.data;
+  }
+
+  async updateUserPreferences(userId: string, preferences: Record<string, unknown>): Promise<ApiResponse<{ success: boolean }>> {
+    const response = await this.client.put<ApiResponse<{ success: boolean }>>(`/api/users/${userId}/preferences`, preferences);
+    return response.data;
+  }
+
+  async resetUserPreferences(userId: string): Promise<ApiResponse<{ success: boolean }>> {
+    const response = await this.client.delete<ApiResponse<{ success: boolean }>>(`/api/users/${userId}/preferences`);
+    return response.data;
   }
 }
 
