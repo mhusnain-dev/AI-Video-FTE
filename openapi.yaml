@@ -1,0 +1,1951 @@
+openapi: 3.1.0
+info:
+  title: AI Video Production Specialist — Digital FTE
+  version: 0.1.0
+  description: |
+    REST API for the AI Video Production Specialist Digital FTE.
+    Orchestrates end-to-end video production from story concept to final merged video.
+
+    ## Core Services
+    - **Ingestion**: Story creation, shot decomposition, character management
+    - **Router**: Model selection (AUTO/MANUAL), eligibility, fallback
+    - **Admission**: Moderation → Sacred Guard → Cost Guard → Rate Limit (fixed order)
+    - **Dispatch**: Shot dispatch, webhook ingestion, timeout/fallback
+    - **Merger**: FFmpeg assembly, transitions, audio, subtitles, delivery
+    - **Observability**: Health checks, Prometheus metrics, SSE events
+
+  contact:
+    name: AI Video FTE Team
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Local development
+  - url: https://api.example.com
+    description: Production
+
+tags:
+  - name: Health
+    description: Health checks and Kubernetes probes
+  - name: Metrics
+    description: Prometheus metrics
+  - name: Stories
+    description: Story CRUD, plan management, delivery
+  - name: Characters
+    description: Character reference management
+  - name: Admission
+    description: Admission pipeline (moderation, Sacred Guard, cost, rate limit)
+  - name: Router
+    description: Model selection and routing
+  - name: Dispatch
+    description: Webhook ingestion and dispatch management
+  - name: Merger
+    description: Video merging, delivery, partial regeneration
+  - name: Shots
+    description: Shot-level operations
+  - name: Users
+    description: User settings and budget
+  - name: Projects
+    description: Project settings
+  - name: Sacred Guard
+    description: Sacred Guard configuration and appeals
+  - name: Audit
+    description: Audit logs
+  - name: Events
+    description: SSE event streaming
+
+paths:
+  # ============================================================
+  # Health & Metrics
+  # ============================================================
+  /health:
+    get:
+      tags: [Health]
+      summary: Full health check
+      description: Returns aggregate health status with all service checks and operational metrics.
+      operationId: getHealth
+      responses:
+        '200':
+          description: Health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '503':
+          description: One or more critical services unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  /health/live:
+    get:
+      tags: [Health]
+      summary: Kubernetes liveness probe
+      operationId: getHealthLive
+      responses:
+        '200':
+          description: Process is alive
+        '503':
+          description: Critical infrastructure unreachable
+
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Kubernetes readiness probe
+      operationId: getHealthReady
+      responses:
+        '200':
+          description: Service can handle requests
+        '503':
+          description: Service not ready
+
+  /health/startup:
+    get:
+      tags: [Health]
+      summary: Kubernetes startup probe
+      operationId: getHealthStartup
+      responses:
+        '200':
+          description: Startup complete
+        '503':
+          description: Still starting
+
+  /health/{service}:
+    get:
+      tags: [Health]
+      summary: Individual service health
+      operationId: getServiceHealth
+      parameters:
+        - $ref: '#/components/parameters/ServiceName'
+      responses:
+        '200':
+          description: Service health
+        '404':
+          description: Unknown service
+        '503':
+          description: Service unhealthy
+
+  /metrics:
+    get:
+      tags: [Metrics]
+      summary: Prometheus text metrics
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Prometheus metrics in text format
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /metrics/json:
+    get:
+      tags: [Metrics]
+      summary: Metrics as JSON
+      operationId: getMetricsJSON
+      responses:
+        '200':
+          description: Metrics in JSON format
+
+  # ============================================================
+  # Stories
+  # ============================================================
+  /stories:
+    post:
+      tags: [Stories]
+      summary: Create a new story
+      description: |
+        Create a story from a brief. Triggers shot decomposition engine.
+        Story starts in `draft` state, moves to `planning` then `awaiting_approval`.
+      operationId: createStory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateStoryRequest'
+      responses:
+        '201':
+          description: Story created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Story'
+        '400':
+          description: Invalid request
+        '500':
+          description: Internal error
+
+    get:
+      tags: [Stories]
+      summary: List stories with pagination
+      operationId: listStories
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/StoryStatus'
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Paginated story list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedStories'
+
+  /stories/{storyId}:
+    get:
+      tags: [Stories]
+      summary: Get story with shot plan
+      operationId: getStory
+      parameters:
+        - $ref: '#/components/parameters/StoryId'
+      responses:
+        '200':
+          description: Story details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Story'
+        '404':
+          description: Story not found
+
+  /stories/{storyId}/present:
+    post:
+      tags: [Stories]
+      summary: Present shot plan for approval
+      operationId: presentShotPlan
+      parameters:
+        - $ref: '#/components/parameters/StoryId'
+      responses:
+        '200':
+          description: Shot plan presented
+        '400':
+          description: Invalid state
+
+  /stories/{storyId}/approve:
+    post:
+      tags: [Stories]
+      summary: Approve shot plan → begin generation
+      operationId: approveShotPlan
+      parameters:
+        - $ref: '#/components/parameters/StoryId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Plan approved, generation started
+        '400':
+          description: Invalid state
+
+  /stories/{storyId}/approve-merge:
+    post:
+      tags: [Stories]
+      summary: Approve merge from pending_merge state
+      operationId: approveMerge
+      parameters:
+        - $ref: '#/components/parameters/StoryId'
+      responses:
+        '200':
+          description: Merge approved
+        '400':
+          description: Invalid state
+
+  /stories/{storyId}/plan:
+    patch:
+      tags: [Stories]
+      summary: Revise shot plan
+      operationId: reviseShotPlan
+      parameters:
+        - $ref: '#/components/parameters/StoryId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revisions]
+              properties:
+                revisions:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ShotPlanRevision'
+      responses:
+        '200':
+          description: Plan revised
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  shots:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Shot'
+        '400':
+          description: Invalid state or revision
+
+  /stories/{storyId}/cancel:
+    post:
+      tags: [Stories]
+      summary: Cancel a story
+      operationId: cancelStory
+      parameters:
+        - $ref: '#/components/parameters/StoryId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+                option:
+                  type: string
+      responses:
+        '200':
+          description: Story cancelled
+        '404':
+          description: Story not found
+
+  /stories/{storyId}/delivery:
+    get:
+      tags: [Stories]
+      summary: Get delivery info for a story
+      operationId: getStoryDelivery
+      parameters:
+        - $ref: '#/components/parameters/StoryId'
+      responses:
+        '200':
+          description: Delivery info
+        '404':
+          description: Story not found
+
+  /stories/{storyId}/download:
+    get:
+      tags: [Stories]
+      summary: Get download URL for a story
+      operationId: getStoryDownload
+      parameters:
+        - $ref: '#/components/parameters/StoryId'
+      responses:
+        '200':
+          description: Download URL
+
+  /stories/{storyId}/state-history:
+    get:
+      tags: [Stories]
+      summary: Get state change history
+      operationId: getStoryStateHistory
+      parameters:
+        - $ref: '#/components/parameters/StoryId'
+      responses:
+        '200':
+          description: State history
+
+  /stories/{storyId}/cost-breakdown:
+    get:
+      tags: [Stories]
+      summary: Get cost breakdown
+      operationId: getStoryCostBreakdown
+      parameters:
+        - $ref: '#/components/parameters/StoryId'
+      responses:
+        '200':
+          description: Cost breakdown
+
+  /stories/{storyId}/cost-attribution:
+    get:
+      tags: [Stories]
+      summary: Get per-shot cost attribution
+      operationId: getStoryCostAttribution
+      parameters:
+        - $ref: '#/components/parameters/StoryId'
+      responses:
+        '200':
+          description: Cost attribution
+
+  /stories/{storyId}/admission-pipeline:
+    get:
+      tags: [Stories]
+      summary: Get admission pipeline status for all shots
+      operationId: getStoryAdmissionPipeline
+      parameters:
+        - $ref: '#/components/parameters/StoryId'
+      responses:
+        '200':
+          description: Admission pipeline status
+
+  /stories/{storyId}/stream:
+    get:
+      tags: [Events]
+      summary: SSE stream for real-time story updates
+      operationId: streamStoryEvents
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  # ============================================================
+  # Characters
+  # ============================================================
+  /stories/{storyId}/characters:
+    post:
+      tags: [Characters]
+      summary: Upload character reference
+      description: |
+        Upload a character reference image with face detection and Sacred Guard registry check.
+        Character face embeddings are encrypted with Vault Transit.
+      operationId: uploadCharacter
+      parameters:
+        - $ref: '#/components/parameters/StoryId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, character]
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+                character:
+                  $ref: '#/components/schemas/CharacterUpload'
+      responses:
+        '201':
+          description: Character uploaded
+        '400':
+          description: Face detection failed or Sacred Guard blocked
+
+    get:
+      tags: [Characters]
+      summary: List character references
+      operationId: listCharacters
+      parameters:
+        - $ref: '#/components/parameters/StoryId'
+      responses:
+        '200':
+          description: Character list
+
+  /stories/{storyId}/characters/{name}:
+    get:
+      tags: [Characters]
+      summary: Get character by name
+      operationId: getCharacterByName
+      parameters:
+        - $ref: '#/components/parameters/StoryId'
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Character details
+        '404':
+          description: Character not found
+
+  /stories/{storyId}/characters/{characterId}:
+    delete:
+      tags: [Characters]
+      summary: Delete a character reference
+      operationId: deleteCharacter
+      parameters:
+        - $ref: '#/components/parameters/StoryId'
+        - name: characterId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Character deleted
+        '404':
+          description: Character not found
+
+  # ============================================================
+  # Admission
+  # ============================================================
+  /admission/check:
+    post:
+      tags: [Admission]
+      summary: Run full admission pipeline for a shot
+      description: |
+        Fixed order: Moderation → Sacred Guard → Cost Guard → Rate Limit.
+        This order is a mandatory business invariant.
+      operationId: admissionCheck
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdmissionContext'
+      responses:
+        '200':
+          description: Admission result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdmissionResult'
+
+  /admission/story-creation:
+    post:
+      tags: [Admission]
+      summary: Check admission at story creation (enforcement point a)
+      operationId: admissionStoryCreation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [storyId, userId, prompt, referenceImages, modelId]
+              properties:
+                storyId:
+                  type: string
+                  format: uuid
+                userId:
+                  type: string
+                  format: uuid
+                prompt:
+                  type: string
+                referenceImages:
+                  type: array
+                  items:
+                    type: string
+                modelId:
+                  type: string
+      responses:
+        '200':
+          description: Admission result
+
+  /admission/post-generation:
+    post:
+      tags: [Admission]
+      summary: Check admission post-generation (enforcement point e)
+      operationId: admissionPostGeneration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [storyId, shotId, userId, generatedFramesBase64, modelId]
+              properties:
+                storyId:
+                  type: string
+                  format: uuid
+                shotId:
+                  type: string
+                  format: uuid
+                userId:
+                  type: string
+                  format: uuid
+                generatedFramesBase64:
+                  type: array
+                  items:
+                    type: string
+                modelId:
+                  type: string
+      responses:
+        '200':
+          description: Admission result
+
+  /admission/resolve-pause:
+    post:
+      tags: [Admission]
+      summary: Resolve a paused story
+      operationId: resolvePause
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [storyId, resolution, userId]
+              properties:
+                storyId:
+                  type: string
+                  format: uuid
+                resolution:
+                  type: string
+                  enum:
+                    - reduce_scope
+                    - increase_budget
+                    - cancel
+                    - rate_limit_resolved
+                    - sacred_guard_resolved
+                userId:
+                  type: string
+                  format: uuid
+                metadata:
+                  type: object
+      responses:
+        '200':
+          description: Pause resolved
+        '400':
+          description: Invalid resolution or state
+
+  /admission/rate-limit-status:
+    get:
+      tags: [Admission]
+      summary: Get current rate limit status
+      operationId: getRateLimitStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, modelId]
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+                modelId:
+                  type: string
+      responses:
+        '200':
+          description: Rate limit status
+
+  /admission/audit:
+    get:
+      tags: [Admission]
+      summary: Get admission audit log
+      operationId: getAdmissionAudit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [storyId]
+              properties:
+                storyId:
+                  type: string
+                  format: uuid
+                shotId:
+                  type: string
+                  format: uuid
+                gate:
+                  type: string
+                  enum: [moderation, sacred_guard, cost_guard, rate_limit]
+      responses:
+        '200':
+          description: Audit log entries
+
+  /admission/denylist/add:
+    post:
+      tags: [Sacred Guard]
+      summary: Add entity to Sacred Guard denylist (first approval)
+      operationId: addDenylist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entityName, entityType, matchType, requestedBy]
+              properties:
+                entityName:
+                  type: string
+                entityType:
+                  type: string
+                matchType:
+                  type: string
+                  enum: [exact, transliterated, fuzzy, visual_semantic]
+                requestedBy:
+                  type: string
+                  format: uuid
+                embedding:
+                  type: array
+                  items:
+                    type: number
+                metadata:
+                  type: object
+      responses:
+        '200':
+          description: Entry added, awaiting second approval
+
+  /admission/denylist/{id}/approve:
+    put:
+      tags: [Sacred Guard]
+      summary: Second approval to activate denylist entry
+      operationId: approveDenylist
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approverId]
+              properties:
+                approverId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Entry activated
+        '400':
+          description: Already fully approved or not found
+
+  /admission/denylist/{id}:
+    delete:
+      tags: [Sacred Guard]
+      summary: Remove denylist entry (dual-authorization)
+      operationId: removeDenylist
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approver1, approver2]
+              properties:
+                approver1:
+                  type: string
+                  format: uuid
+                approver2:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Entry deactivated
+
+  /admission/denylist/{id}/appeal:
+    post:
+      tags: [Sacred Guard]
+      summary: Appeal a Sacred Guard block
+      operationId: appealSacredGuard
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [appellantId, reason]
+              properties:
+                appellantId:
+                  type: string
+                  format: uuid
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Appeal recorded
+
+  # ============================================================
+  # Router
+  # ============================================================
+  /router/models:
+    get:
+      tags: [Router]
+      summary: List all registered models
+      operationId: listModels
+      responses:
+        '200':
+          description: Model list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ModelCapabilities'
+
+    post:
+      tags: [Router]
+      summary: Add or update model (admin)
+      operationId: upsertModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelCapabilities'
+      responses:
+        '201':
+          description: Model created/updated
+        '400':
+          description: Invalid model data
+
+  /router/models/{modelId}:
+    get:
+      tags: [Router]
+      summary: Get model details
+      operationId: getModel
+      parameters:
+        - name: modelId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Model details
+        '404':
+          description: Model not found
+
+    delete:
+      tags: [Router]
+      summary: Deactivate model (admin)
+      operationId: deactivateModel
+      parameters:
+        - name: modelId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Model deactivated
+
+  /router/route:
+    post:
+      tags: [Router]
+      summary: Select best model for shot (AUTO routing)
+      operationId: selectModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+                requirements:
+                  $ref: '#/components/schemas/ShotRequirements'
+      responses:
+        '200':
+          description: Model selection decision
+        '400':
+          description: No eligible model
+
+  /router/fallback:
+    post:
+      tags: [Router]
+      summary: Get next fallback model
+      operationId: getFallback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [shotId, failedModelId, userId, requirements]
+              properties:
+                shotId:
+                  type: string
+                  format: uuid
+                failedModelId:
+                  type: string
+                userId:
+                  type: string
+                  format: uuid
+                requirements:
+                  $ref: '#/components/schemas/ShotRequirements'
+      responses:
+        '200':
+          description: Fallback model
+        '404':
+          description: All models exhausted
+
+  /router/dispatch:
+    post:
+      tags: [Router]
+      summary: Record dispatch attempt
+      operationId: recordDispatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [shotId, modelId, status]
+              properties:
+                shotId:
+                  type: string
+                  format: uuid
+                modelId:
+                  type: string
+                providerRequestId:
+                  type: string
+                status:
+                  type: string
+                  enum: [pending, dispatched, completed, failed, timeout, fallback]
+      responses:
+        '200':
+          description: Dispatch recorded
+
+  /router/dispatch/{shotId}/history:
+    get:
+      tags: [Router]
+      summary: Get dispatch history for shot
+      operationId: getDispatchHistory
+      parameters:
+        - name: shotId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Dispatch history
+
+  /router/users/{userId}/model-priority:
+    get:
+      tags: [Router]
+      summary: Get user's model priority
+      operationId: getUserModelPriority
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User priority or system default
+
+    put:
+      tags: [Router]
+      summary: Set user's model priority
+      operationId: setUserModelPriority
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [priorityList]
+              properties:
+                priorityList:
+                  type: array
+                  items:
+                    type: string
+                  minItems: 1
+      responses:
+        '200':
+          description: Priority updated
+        '400':
+          description: Invalid model ID
+
+  /router/system/model-priority:
+    get:
+      tags: [Router]
+      summary: Get system default priority
+      operationId: getSystemDefaultPriority
+      responses:
+        '200':
+          description: System default priority list
+
+    put:
+      tags: [Router]
+      summary: Set system default priority (admin)
+      operationId: setSystemDefaultPriority
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [priorityList]
+              properties:
+                priorityList:
+                  type: array
+                  items:
+                    type: string
+                  minItems: 1
+      responses:
+        '200':
+          description: Priority updated
+
+  /router/adapters:
+    get:
+      tags: [Router]
+      summary: List all registered adapters
+      operationId: listAdapters
+      responses:
+        '200':
+          description: Adapter list
+
+  # ============================================================
+  # Dispatch (Webhooks)
+  # ============================================================
+  /dispatch/{provider}:
+    post:
+      tags: [Dispatch]
+      summary: Receive completion webhook from model provider
+      description: |
+        Idempotent endpoint — always returns 200 to prevent provider retries.
+        HMAC-SHA256 verified for production webhooks.
+      operationId: handleWebhook
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [google, runway, luma, pika, kling]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookPayload'
+      responses:
+        '200':
+          description: Webhook processed (always 200 for idempotency)
+
+  /dispatch/webhook/stats:
+    get:
+      tags: [Dispatch]
+      summary: Get webhook processing statistics
+      operationId: getWebhookStats
+      parameters:
+        - name: windowMs
+          in: query
+          schema:
+            type: integer
+            default: 3600000
+      responses:
+        '200':
+          description: Webhook stats
+
+  /dispatch/webhook/test/{provider}:
+    post:
+      tags: [Dispatch]
+      summary: Test webhook endpoint (skips HMAC verification)
+      operationId: testWebhook
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [google, runway, luma, pika, kling]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookPayload'
+      responses:
+        '200':
+          description: Test webhook processed
+
+  # ============================================================
+  # Merger
+  # ============================================================
+  /merger/merge:
+    post:
+      tags: [Merger]
+      summary: Merge shots for a story
+      operationId: mergeShots
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [storyId]
+              properties:
+                storyId:
+                  type: string
+                  format: uuid
+                resolution:
+                  type: string
+                  enum: [720p, 1080p, 4K]
+                format:
+                  type: string
+                  enum: [mp4]
+                transition:
+                  $ref: '#/components/schemas/TransitionConfig'
+      responses:
+        '200':
+          description: Merge result
+        '400':
+          description: Invalid state
+
+  /merger/delivery:
+    post:
+      tags: [Merger]
+      summary: Generate delivery package
+      operationId: generateDelivery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [storyId]
+              properties:
+                storyId:
+                  type: string
+                  format: uuid
+                resolution:
+                  type: string
+                  enum: [720p, 1080p, 4K]
+                format:
+                  type: string
+                  enum: [mp4]
+      responses:
+        '200':
+          description: Delivery package
+        '400':
+          description: Invalid state
+
+  /merger/partial-regenerate:
+    post:
+      tags: [Merger]
+      summary: Partially regenerate specific shots
+      operationId: partialRegenerate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [storyId, shotIds, userId]
+              properties:
+                storyId:
+                  type: string
+                  format: uuid
+                shotIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  minItems: 1
+                userId:
+                  type: string
+                  format: uuid
+                resolution:
+                  type: string
+                  enum: [720p, 1080p, 4K]
+                transition:
+                  $ref: '#/components/schemas/TransitionConfig'
+      responses:
+        '200':
+          description: Partial regeneration started
+        '400':
+          description: Invalid shot IDs or state
+
+  /merger/delivery/{deliveryId}:
+    get:
+      tags: [Merger]
+      summary: Get delivery package info
+      operationId: getDeliveryPackage
+      parameters:
+        - name: deliveryId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Delivery package details
+        '404':
+          description: Not found
+
+  # ============================================================
+  # Auxiliary (Frontend API)
+  # ============================================================
+  /api/shots/{shotId}/admission-status:
+    get:
+      tags: [Shots]
+      summary: Get admission status for a shot
+      operationId: getShotAdmissionStatus
+      parameters:
+        - name: shotId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Admission status
+
+  /api/shots/{shotId}/generation-status:
+    get:
+      tags: [Shots]
+      summary: Get generation status for a shot
+      operationId: getShotGenerationStatus
+      parameters:
+        - name: shotId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Generation status
+
+  /api/shots/{shotId}/face-lock-results:
+    get:
+      tags: [Shots]
+      summary: Get Face-Lock results for a shot
+      operationId: getShotFaceLockResults
+      parameters:
+        - name: shotId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Face-Lock results
+
+  /api/shots/{shotId}/regenerate:
+    post:
+      tags: [Shots]
+      summary: Regenerate a specific shot
+      operationId: regenerateShot
+      parameters:
+        - name: shotId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Shot reset to planned
+        '404':
+          description: Shot not found
+
+  /api/characters/{characterId}/consistency-report:
+    get:
+      tags: [Characters]
+      summary: Get consistency report for a character
+      operationId: getCharacterConsistencyReport
+      parameters:
+        - name: characterId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Consistency report
+
+  /api/users/{userId}/budget:
+    get:
+      tags: [Users]
+      summary: Get user's 30-day spending
+      operationId: getUserBudget
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Budget info
+
+  /api/users/{userId}/settings:
+    get:
+      tags: [Users]
+      summary: Get user settings
+      operationId: getUserSettings
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User settings
+
+    patch:
+      tags: [Users]
+      summary: Update user settings
+      operationId: updateUserSettings
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Settings updated
+
+  /api/users/{userId}/model-priority:
+    get:
+      tags: [Router]
+      summary: Get user model priority (frontend alias)
+      operationId: getUserModelPriorityAlias
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User priority
+
+    patch:
+      tags: [Router]
+      summary: Update user model priority (frontend alias)
+      operationId: updateUserModelPriority
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                priorityList:
+                  type: array
+                  items:
+                    type: string
+                useSystemDefault:
+                  type: boolean
+      responses:
+        '200':
+          description: Priority updated
+
+  /api/projects/{projectId}/settings:
+    get:
+      tags: [Projects]
+      summary: Get project settings
+      operationId: getProjectSettings
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Project settings
+
+    patch:
+      tags: [Projects]
+      summary: Update project settings
+      operationId: updateProjectSettings
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Settings updated
+
+  /api/sacred-guard/thresholds:
+    get:
+      tags: [Sacred Guard]
+      summary: Get Sacred Guard thresholds
+      operationId: getSacredGuardThresholds
+      responses:
+        '200':
+          description: Thresholds
+
+    patch:
+      tags: [Sacred Guard]
+      summary: Update Sacred Guard thresholds
+      operationId: updateSacredGuardThresholds
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Thresholds updated
+
+  /api/sacred-guard/appeals:
+    post:
+      tags: [Sacred Guard]
+      summary: Submit a Sacred Guard appeal
+      operationId: submitAppeal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entityName, reason]
+              properties:
+                entityName:
+                  type: string
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Appeal submitted
+
+  /api/audit-logs:
+    get:
+      tags: [Audit]
+      summary: Get audit logs with pagination
+      operationId: getAuditLogs
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Audit logs
+
+  /api/stories/{storyId}/shots:
+    get:
+      tags: [Shots]
+      summary: Get shots for a story
+      operationId: getStoryShots
+      parameters:
+        - name: storyId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Shot list
+
+  /api/stories/{storyId}/events:
+    get:
+      tags: [Events]
+      summary: Get story events
+      operationId: getStoryEvents
+      parameters:
+        - name: storyId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Event list
+
+# ============================================================
+# Components
+# ============================================================
+components:
+  parameters:
+    StoryId:
+      name: storyId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    ServiceName:
+      name: service
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [ingestion, router, admission, dispatch, facelock, merger]
+
+  schemas:
+    StoryStatus:
+      type: string
+      enum:
+        - draft
+        - planning
+        - awaiting_approval
+        - approved
+        - in_progress
+        - generating
+        - pending_merge
+        - merging
+        - completed
+        - failed
+        - cancelled
+        - paused_cost
+        - paused_rate_limit
+        - paused_sacred_guard
+
+    ShotStatus:
+      type: string
+      enum:
+        - planned
+        - awaiting_approval
+        - approved
+        - in_admission
+        - admission_passed
+        - dispatched
+        - generating
+        - completed
+        - failed
+        - timeout
+        - regenerating
+
+    CreateStoryRequest:
+      type: object
+      required: [brief, userId]
+      properties:
+        brief:
+          type: object
+          required: [narrative, targetDurationSeconds]
+          properties:
+            narrative:
+              type: string
+              minLength: 1
+            targetDurationSeconds:
+              type: integer
+              minimum: 1
+              maximum: 3600
+            aspectRatio:
+              type: string
+              enum: ['16:9', '9:16', '1:1', '4:5']
+            resolution:
+              type: string
+              enum: [720p, 1080p, 4K]
+            characterReferences:
+              type: array
+              items:
+                type: string
+            styleReferences:
+              type: array
+              items:
+                type: string
+            negativePrompts:
+              type: array
+              items:
+                type: string
+            audioConfig:
+              $ref: '#/components/schemas/AudioConfig'
+        userId:
+          type: string
+          format: uuid
+
+    AudioConfig:
+      type: object
+      properties:
+        ttsVoice:
+          type: string
+        ttsStyle:
+          type: string
+        musicSource:
+          type: string
+          enum: [royalty_free, elevenlabs, custom]
+        musicTrackId:
+          type: string
+        musicVolume:
+          type: number
+          minimum: 0
+          maximum: 1
+
+    Story:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        brief:
+          $ref: '#/components/schemas/CreateStoryRequest/properties/brief'
+        status:
+          $ref: '#/components/schemas/StoryStatus'
+        shots:
+          type: array
+          items:
+            $ref: '#/components/schemas/Shot'
+        currentVersion:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        totalEstimatedCost:
+          type: number
+        totalActualCost:
+          type: number
+
+    Shot:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        storyId:
+          type: string
+          format: uuid
+        orderIndex:
+          type: integer
+        visualDescription:
+          type: string
+        durationSeconds:
+          type: number
+        cameraMotion:
+          type: string
+        characterNames:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: '#/components/schemas/ShotStatus'
+        selectedModelId:
+          type: string
+        estimatedCostUsd:
+          type: number
+        actualCostUsd:
+          type: number
+        errorMessage:
+          type: string
+
+    CharacterUpload:
+      type: object
+      required: [name, imageBase64]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        imageBase64:
+          type: string
+          minLength: 1
+        voiceReferenceBase64:
+          type: string
+
+    ShotPlanRevision:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [add, remove, reorder, edit]
+        shotId:
+          type: string
+          format: uuid
+        newOrder:
+          type: integer
+          minimum: 0
+        shotData:
+          type: object
+
+    TransitionConfig:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [crossfade, fade, slide, zoom, wipe, custom]
+        durationSeconds:
+          type: number
+        ffmpegFilter:
+          type: string
+
+    AdmissionContext:
+      type: object
+      required: [storyId, shotId, userId, prompt, referenceImages, modelId, estimatedCost]
+      properties:
+        storyId:
+          type: string
+          format: uuid
+        shotId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        prompt:
+          type: string
+        referenceImages:
+          type: array
+          items:
+            type: string
+        modelId:
+          type: string
+        estimatedCost:
+          type: number
+          minimum: 0
+
+    AdmissionResult:
+      type: object
+      properties:
+        passed:
+          type: boolean
+        moderation:
+          $ref: '#/components/schemas/GateResult'
+        sacredGuard:
+          $ref: '#/components/schemas/GateResult'
+        costGuard:
+          $ref: '#/components/schemas/GateResult'
+        rateLimit:
+          $ref: '#/components/schemas/GateResult'
+
+    GateResult:
+      type: object
+      properties:
+        passed:
+          type: boolean
+        reason:
+          type: string
+        score:
+          type: number
+        threshold:
+          type: number
+        matchType:
+          type: string
+          enum: [exact, fuzzy, visual]
+
+    WebhookPayload:
+      type: object
+      required: [provider, requestId, status, timestamp, signature]
+      properties:
+        provider:
+          type: string
+        requestId:
+          type: string
+        status:
+          type: string
+          enum: [completed, failed]
+        result:
+          type: object
+        error:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        signature:
+          type: string
+
+    ModelCapabilities:
+      type: object
+      required: [id, name, provider, maxResolution, maxDurationSeconds, supportedAspectRatios, supportedRegions, costPerSecondUsd, capabilities, defaultTimeoutSeconds]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        provider:
+          type: string
+        maxResolution:
+          type: string
+          enum: [720p, 1080p, 4K]
+        maxDurationSeconds:
+          type: integer
+          minimum: 1
+          maximum: 300
+        supportedAspectRatios:
+          type: array
+          items:
+            type: string
+        supportedRegions:
+          type: array
+          items:
+            type: string
+        costPerSecondUsd:
+          type: number
+          minimum: 0
+        costCurrency:
+          type: string
+          default: USD
+        capabilities:
+          type: array
+          items:
+            type: string
+        defaultTimeoutSeconds:
+          type: integer
+          minimum: 10
+          maximum: 600
+
+    ShotRequirements:
+      type: object
+      properties:
+        resolution:
+          type: string
+          enum: [720p, 1080p, 4K]
+        aspectRatio:
+          type: string
+          enum: ['16:9', '9:16', '1:1', '4:5']
+        durationSeconds:
+          type: integer
+          minimum: 1
+          maximum: 300
+        region:
+          type: string
+        requiredCapabilities:
+          type: array
+          items:
+            type: string
+        modelOverride:
+          type: string
+
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+        checks:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              status:
+                type: string
+                enum: [healthy, degraded, unhealthy]
+              latencyMs:
+                type: integer
+        metrics:
+          type: object
+          properties:
+            activeStories:
+              type: integer
+            activeShots:
+              type: integer
+            costDriftPercentage:
+              type: number
+
+    PaginatedStories:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Story'
+        pagination:
+          type: object
+          properties:
+            page:
+              type: integer
+            pageSize:
+              type: integer
+            total:
+              type: integer
+            totalPages:
+              type: integer

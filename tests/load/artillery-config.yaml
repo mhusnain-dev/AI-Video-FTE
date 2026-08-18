@@ -1,0 +1,80 @@
+config:
+  target: "http://localhost:3000"
+  phases:
+    - name: "warmup"
+      duration: 30
+      arrivalRate: 10
+    - name: "ramp"
+      duration: 120
+      rampTo: 50
+      arrivalRate: 10
+    - name: "sustained"
+      duration: 300
+      arrivalRate: 50
+    - name: "cooldown"
+      duration: 30
+      rampTo: 5
+      arrivalRate: 50
+  defaults:
+    think: 1-3
+  plugins:
+    metrics-by-endpoint:
+      useOnlyRequestNames: true
+  ensure:
+    thresholds:
+      - http.response_time.p99: 2000
+      - http.codes.5xx: 0
+    min:
+      http.codes.200: 0.80
+  variables:
+    userId: "550e8400-e29b-41d4-a716-446655440000"
+
+scenarios:
+  - name: "Health Check"
+    weight: 40
+    flow:
+      - loop:
+          - get:
+              url: "/health"
+              name: "GET /health"
+          - think: 1
+        count: 3
+
+  - name: "List Stories"
+    weight: 30
+    flow:
+      - loop:
+          - get:
+              url: "/api/stories?userId={{ userId }}"
+              name: "GET /api/stories"
+          - think: 2
+        count: 3
+
+  - name: "Create Story"
+    weight: 20
+    flow:
+      - loop:
+          - post:
+              url: "/api/stories"
+              name: "POST /api/stories"
+              json:
+                brief:
+                  narrative: "A short test scene for load testing purposes"
+                  targetDurationSeconds: 10
+                  aspectRatio: "16:9"
+                  resolution: "720p"
+                userId: "{{ userId }}"
+              headers:
+                Content-Type: "application/json"
+          - think: 3
+        count: 2
+
+  - name: "Get Story By ID"
+    weight: 10
+    flow:
+      - loop:
+          - get:
+              url: "/api/stories?userId={{ userId }}"
+              name: "GET /api/stories"
+          - think: 1
+        count: 2
