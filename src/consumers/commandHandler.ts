@@ -11,7 +11,7 @@ import { dispatchShot, dispatchWithFallback, isShotDispatched } from '../dispatc
 import { compilePrompt } from '../generation/promptCompiler.js';
 import { selectModelForShot } from '../router/autoRouter.js';
 import { getCharacterReferences } from '../ingestion/characterService.js';
-import type { ShotPlan, ModelCapabilities, CompiledPrompt } from '../shared/types.js';
+import type { ShotPlan } from '../shared/types.js';
 import type { StreamMessage } from '../shared/redis.js';
 
 export interface CommandHandlerOptions extends Omit<ConsumerOptions, 'groupName' | 'stream'> {
@@ -82,7 +82,7 @@ export class CommandHandlerConsumer extends BaseConsumer {
    * Handle 'approve' command - dispatch all shots in the shot plan
    */
   private async handleApprove(payload: StoryCommandPayload): Promise<void> {
-    const { storyId, userId: _userId, shotIds, force = false } = payload;
+    const { storyId, userId, shotIds, force = false } = payload;
 
     // Fetch the story with its shot plan
     const storyResult = await query(
@@ -103,7 +103,25 @@ export class CommandHandlerConsumer extends BaseConsumer {
       [storyId]
     );
 
-    const shots = shotsResult.rows as ShotPlan[];
+    const shots: ShotPlan[] = shotsResult.rows.map(row => ({
+      id: row.id,
+      storyId: row.story_id,
+      order: row.order_index,
+      visualDescription: row.visual_description,
+      durationSeconds: row.duration_seconds,
+      cameraMotion: row.camera_motion,
+      characters: row.characters || [],
+      keyObjects: row.key_objects || [],
+      keyActions: row.key_actions || [],
+      audioCues: row.audio_cues,
+      styleReferences: row.style_references,
+      negativePrompts: row.negative_prompts,
+      modelOverride: row.model_override,
+      transition: row.transition ? (typeof row.transition === 'string' ? JSON.parse(row.transition) : row.transition) : undefined,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
 
     if (shots.length === 0) {
       console.warn(`No shots in shot plan for story: ${storyId}`);
@@ -141,7 +159,7 @@ export class CommandHandlerConsumer extends BaseConsumer {
 
       try {
         // Route model for this shot
-        const routingDecision = await selectModelForShot('system', {
+        const routingDecision = await selectModelForShot(userId, {
           resolution: story.resolution as any,
           aspectRatio: story.aspect_ratio as any,
           durationSeconds: shot.durationSeconds,
@@ -213,7 +231,25 @@ export class CommandHandlerConsumer extends BaseConsumer {
       [storyId, shotIds]
     );
 
-    const shots = shotsResult.rows as ShotPlan[];
+    const shots: ShotPlan[] = shotsResult.rows.map(row => ({
+      id: row.id,
+      storyId: row.story_id,
+      order: row.order_index,
+      visualDescription: row.visual_description,
+      durationSeconds: row.duration_seconds,
+      cameraMotion: row.camera_motion,
+      characters: row.characters || [],
+      keyObjects: row.key_objects || [],
+      keyActions: row.key_actions || [],
+      audioCues: row.audio_cues,
+      styleReferences: row.style_references,
+      negativePrompts: row.negative_prompts,
+      modelOverride: row.model_override,
+      transition: row.transition ? (typeof row.transition === 'string' ? JSON.parse(row.transition) : row.transition) : undefined,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
 
     if (shots.length === 0) {
       console.warn(`No matching shots found for regeneration`);

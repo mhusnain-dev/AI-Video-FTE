@@ -190,8 +190,8 @@ export async function uploadCharacterReference(
         userId,
         storyId,
         character.name,
-        faceEncrypted.envelope, // Stored as JSONB
-        voiceEncrypted ? voiceEncrypted.envelope : null,
+        `[${faceResult.embedding?.join(',') || ''}]`, // pgvector format
+        voiceEmbedding ? `[${voiceEmbedding.join(',')}]` : null,
         imageHash,
         character.imageBase64, // Store the actual base64 image for Face-Lock conditioning
         request.referenceImageUrl || null,

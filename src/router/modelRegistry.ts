@@ -182,6 +182,8 @@ export async function getEligibleModels(
 
   // Sort by priority
   const priorityList = userPriorityList || config.router.systemDefaultPriority;
+  console.log(`[Router] Priority list: ${JSON.stringify(priorityList)}`);
+  console.log(`[Router] Eligible models: ${eligible.map(m => m.id).join(', ')}`);
   const priorityMap = new Map(priorityList.map((id, index) => [id, index]));
 
   eligible.sort((a, b) => {

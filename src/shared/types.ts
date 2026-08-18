@@ -11,6 +11,20 @@ export type AspectRatio = '16:9' | '9:16' | '1:1' | '4:5';
 
 export type Resolution = '720p' | '1080p' | '4K';
 
+export type QualityPreset =
+  | 'draft'
+  | 'standard'
+  | 'high'
+  | 'ultra_realistic';
+
+export interface QualityPresetConfig {
+  quality: QualityPreset;
+  costMultiplier: number;
+  maxResolution: Resolution;
+  maxRetries: number;
+  faceLockThreshold: number;
+}
+
 export type TransitionType =
   | 'crossfade'
   | 'fade'
@@ -109,6 +123,7 @@ export type StoryStatus =
   | 'approved'
   | 'in_progress'
   | 'generating'
+  | 'pending_merge'
   | 'merging'
   | 'completed'
   | 'failed'
@@ -586,6 +601,32 @@ export interface AppConfig {
 
   // Phase 7
   observability: ObservabilityConfig;
+
+  // Provider API keys (loaded from _FILE env vars, /run/secrets/, ./secrets/, or plain env vars)
+  veoApiKey?: string;
+  runwayApiKey?: string;
+  lumaApiKey?: string;
+  elevenlabsApiKey?: string;
+  kieApiKey?: string;
+  llmApiKey?: string;
+
+  // Quality presets
+  qualityPresets?: Record<QualityPreset, QualityPresetConfig>;
+
+  // Auth
+  jwtSecret?: string;
+  jwtExpiryHours?: number;
+
+  // Admin Account Management
+  adminEmail?: string;
+  smtp?: {
+    host: string;
+    port: number;
+    user: string;
+    pass: string;
+    fromEmail: string;
+  };
+  frontendUrl?: string;
 }
 
 export interface PostgresConfig {
@@ -679,4 +720,92 @@ export interface LoggingConfig {
   level: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
   prettyPrint?: boolean;
   redactPaths?: string[]; // Paths to redact in logs (e.g., ['password', 'token'])
+}
+
+// ============================================
+// Prompt Sanitizer Types (F1)
+// ============================================
+
+export interface ModelConstraints {
+  modelId: string;
+  maxLength?: number;
+  forbiddenPatterns?: string[];
+  requiredSafetyInstructions?: string[];
+}
+
+export interface SanitizedPrompt {
+  sanitized: string;
+  piiFound: boolean;
+  injectionsFound: boolean;
+  warnings: string[];
+}
+
+// ============================================
+// User Feedback Types (F7)
+// ============================================
+
+export interface UserFeedback {
+  id: string;
+  userId: string;
+  storyId: string;
+  shotId?: string;
+  rating?: number;
+  flagReason?: string;
+  flagComment?: string;
+  createdAt: Date;
+}
+
+// ============================================
+// User Preferences Types (F8)
+// ============================================
+
+export interface UserPreferences {
+  id: string;
+  userId: string;
+  preferences: UserPreferenceData;
+  updatedAt: Date;
+}
+
+export interface UserPreferenceData {
+  preferredModel?: string;
+  preferredQuality?: QualityPreset;
+  preferredTransitions?: string[];
+  preferredAspectRatio?: AspectRatio;
+  preferredResolution?: Resolution;
+  costBudgetUsd?: number;
+  faceLockThreshold?: number;
+  learnedFromFeedback?: boolean;
+  lastExtractedAt?: Date;
+}
+
+// ============================================
+// User Settings Types (F10)
+// ============================================
+
+export interface UserSettings {
+  id: string;
+  userId: string;
+  settings: UserSettingsData;
+  updatedAt: Date;
+}
+
+export interface UserSettingsData {
+  costLimits?: {
+    perStoryUsd?: number;
+    perMonthUsd?: number;
+  };
+  rateLimits?: {
+    requestsPerMinute?: number;
+  };
+  faceLockThreshold?: number;
+  defaultModel?: string;
+  defaultQuality?: QualityPreset;
+  defaultAspectRatio?: AspectRatio;
+  defaultResolution?: Resolution;
+  transitions?: TransitionConfig;
+  audio?: AudioConfig;
+  videoPreferences?: {
+    fps?: number;
+    enableSubtitles?: boolean;
+  };
 }

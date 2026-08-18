@@ -63,7 +63,7 @@ Provide a Digital Full-Time Equivalent (FTE) that autonomously produces complete
 | ID | Requirement |
 |----|-------------|
 | **FR-005** | **Multi-Model Support** — The FTE supports generation via multiple generative video model providers, including cloud-hosted and local models. |
-| **FR-006** | **Automatic Model Selection** — For each shot, the FTE automatically selects the most suitable model based on the user's configured model priority list. When no user preference is configured, a system default priority applies (e.g., Veo 3 low quality first when available at zero cost). Models ineligible for a shot (resolution, duration, capability, region) are skipped in priority order. |
+| **FR-006** | **Automatic Model Selection** — For each shot, the FTE automatically selects the most suitable model based on the user's configured model priority list. When no user preference is configured, a system default priority applies (e.g., Veo 3 low quality first when available at zero cost). Models ineligible for a shot (resolution, duration, capability, region) are skipped in priority order. An "Ultra Realistic" quality preset is available that selects highest-quality models (e.g., veo3-high, kie-veo3-quality) with 4K resolution and LLM-optimized prompts. |
 | **FR-007** | **Eligibility Filtering** — Models ineligible for a shot (e.g., cannot meet resolution requirement, lacks required capability, regional restriction) are excluded from selection. |
 | **FR-008** | **Manual Override** — The user may pin a specific model for any shot, bypassing automatic selection. |
 
@@ -83,7 +83,7 @@ Provide a Digital Full-Time Equivalent (FTE) that autonomously produces complete
 
 | ID | Requirement |
 |----|-------------|
-| **FR-016** | **Prompt Compilation** — For each shot, the FTE compiles an optimized prompt from: shot visual description, style references, negative prompts, and character identity parameters. For each registered character present in the shot, the FTE automatically applies that character's named reference image from the registry (user provides name + image once at story creation). |
+| **FR-016** | **Prompt Compilation** — For each shot, the FTE first generates a template-based prompt from shot visual description, camera motion, duration, characters, and objects. When an LLM API key is configured, the FTE enhances the template prompt using the LLM to add cinematic detail, style coherence, and optimized negative prompts. When no LLM key is available, the template prompt is used as-is. Scripts exceeding 5000 characters are chunked into ≤5000 character segments, each receiving its own enhanced prompt. The compiled prompt is presented to the user for review and optional editing before dispatch. For each registered character present in the shot, the FTE automatically applies that character's named reference image from the registry. |
 | **FR-017** | **Shot Dispatch** — Shots are dispatched to model providers with no duplicate dispatches. |
 | **FR-018** | **Completion Notice** — The FTE receives completion notices from model providers and correlates each to the originating shot. |
 | **FR-019** | **Automatic Recovery** — If a completion notice is delayed or lost, the FTE automatically recovers by polling the provider every 30 seconds for up to 10 minutes after expected completion. No duplicate generation or charge occurs. |
@@ -104,8 +104,8 @@ Provide a Digital Full-Time Equivalent (FTE) that autonomously produces complete
 
 | ID | Requirement |
 |----|-------------|
-| **FR-027** | **Shot Merging** — Completed shots are assembled in story order with a default 0.5s cross-fade transition between shots. User may override with any FFmpeg transition filter (e.g., fade, slide, zoom, wipe) and duration per shot or globally. |
-| **FR-028** | **Audio Handling** — If models generate native audio, it is preserved. If not, the FTE generates TTS voiceover via ElevenLabs with user-selectable voices and styles (e.g., "shivank", "deep breath", "suspense"), and applies background music from integrated royalty-free library + ElevenLabs music library. User may override with own audio assets. |
+| **FR-027** | **Shot Merging** — Completed shots are assembled in story order with a default 0.5s cross-fade transition between shots. User may override with any FFmpeg transition filter (e.g., fade, slide, zoom, wipe) and duration per shot or globally. All individual shot chunks are accessible on the frontend with play/pause/volume controls. Transition selection UI allows choosing transitions between any shot pairs, with an "Apply to All" button and custom per-pair transitions. |
+| **FR-028** | **Audio Handling** — If models generate native audio, it is preserved. If not, the FTE generates TTS voiceover via ElevenLabs API (premium quality). Local free-tier TTS (Piper/Coqui) is deferred to a future phase (CL-039). Voices and styles are selectable (e.g., "shivank", "deep breath", "suspense"). Background music from integrated royalty-free library + ElevenLabs music library. Audio duration for each chunk is enforced to match the corresponding video duration exactly. User may override with own audio assets. |
 | **FR-029** | **Final Output Formats** — Delivers video in standard formats (MP4) at user-specified resolution: 720p, 1080p (default), or 4K, up to model maximum. Optional subtitle sidecars in SRT (default), VTT, or ASS format, plus metadata sidecars included. |
 | **FR-030** | **Delivery Notification** — User receives completion notification with: download link (7-day TTL), cost summary, generation logs, verification reports. |
 
@@ -117,6 +117,18 @@ Provide a Digital Full-Time Equivalent (FTE) that autonomously produces complete
 | **FR-032** | **Immutable Audit Log** — Critical operations (Sacred Guard decisions, Cost Guard pauses, Face-Lock verifications, denylist modifications) are recorded in an immutable audit log. |
 | **FR-033** | **Cost Attribution** — Every cost unit is attributed to: story, shot, model, user, timestamp. |
 | **FR-034** | **Operational Health** — The FTE exposes health status and operational metrics for monitoring (processing backlog, latency, error rates, cost drift). |
+
+### 4.8 Authentication & Security
+
+| ID | Requirement |
+|----|-------------|
+| **FR-035** | **User Authentication** — The FTE provides JWT-based authentication with local password storage (bcrypt hashing). A login page accepts credentials and issues a short-lived JWT. All frontend routes are protected via an AuthContext and ProtectedRoute component. Tokens expire after 24 hours; refresh tokens not required. |
+
+### 4.9 Prompt Sanitization
+
+| ID | Requirement |
+|----|-------------|
+| **FR-036** | **Prompt Sanitization** — After prompt compilation and before moderation, the FTE applies deterministic sanitization: strip PII (email addresses, phone numbers, physical addresses) from prompts, enforce per-model character limits and format constraints, remove prompt injection patterns. No LLM call required — sanitization is rule-based and deterministic. |
 
 ---
 
@@ -180,7 +192,7 @@ Provide a Digital Full-Time Equivalent (FTE) that autonomously produces complete
 
 The following are explicitly **not** part of this Digital FTE's behavioural specification:
 
-- **User authentication/authorization** — Assumed provided by host platform
+- **User authentication/authorization** — JWT-based with local password storage (bcrypt). Login page, auth context, ProtectedRoute guard on all routes.
 - **Billing & payment processing** — Cost tracking only; invoicing/payment external
 - **Video hosting/CDN/streaming** — Final delivery is downloadable asset or signed URL
 - **Creative writing / story generation** — User provides the narrative
@@ -473,6 +485,141 @@ The following are explicitly **not** part of this Digital FTE's behavioural spec
 **Decision**: Option B — Different host ports for development. Production retains standard ports (5432, 6379, 8200, 3000, 9090, 9091, 3001, 80, 443, 9093). Development uses clearly documented non-conflicting host ports (offset by +1: 5433, 6380, 8201, 3001, 9091, 9092, 3002). Dev and production must remain isolated in Docker project/network/volume configuration. Internal service-to-service addresses must not be altered by port changes.  
 **Rationale**: Current state has 7 identical host ports preventing simultaneous operation. Option B requires zero production changes, minimal dev changes, allows parallel operation. Option A creates developer friction; Option C over-engineers for current scope. This changes developer workflow observable behavior (Specification Stability Rule CLAUDE.md §8). Clarification required and completed.  
 **Updated**: No functional requirements changed. Dev stack docker-compose.yaml ports section must be updated to offset ports while preserving internal service addresses (postgres:5432, redis:6379, vault:8200, api:3000/9090, etc.).
+
+---
+
+### CL-026: Luma Provider Removed
+**Date**: 2026-08-17  
+**Question**: Should Luma be kept in scope as a model provider?  
+**Decision**: Remove Luma entirely. Supported providers: Veo 3, Runway, KIE, ElevenLabs (TTS).  
+**Rationale**: Principal decision — Luma not needed for current scope.  
+**Updated**: FR-005 scope reduced; model registry excludes Luma.
+
+---
+
+### CL-027: Hybrid TTS Approach
+**Date**: 2026-08-17  
+**Question**: How should voice generation (TTS) work when models don't generate native audio (FR-028)?  
+**Decision**: Hybrid — local free-tier TTS (Piper or Coqui TTS) for zero-cost generation + ElevenLabs API for premium quality. User selects approach at story creation time.  
+**Rationale**: Local TTS avoids API costs for basic needs; ElevenLabs available for high-quality emotive voices when needed.  
+**Updated**: FR-028 now specifies "generates TTS voiceover via either local free-tier engine (user selection) or external API provider (e.g., ElevenLabs) with user-selectable voices and styles... User chooses TTS engine at story creation."
+
+---
+
+### CL-028: Authentication Architecture
+**Date**: 2026-08-17  
+**Question**: What authentication approach for the frontend?  
+**Decision**: JWT + local passwords. Login page issues token; ProtectedRoute validates it. No external provider.  
+**Rationale**: Simple, self-contained. No dependency on external OAuth providers.  
+**Updated**: Added FR-035 (User Authentication). Removed "Assumed provided by host platform" from Out of Scope.
+
+---
+
+### CL-029: Face-Lock Verification Implementation
+**Date**: 2026-08-17  
+**Question**: Face-Lock verification is currently a mock. How should it be implemented?  
+**Decision**: Full real implementation — FFmpeg frame extraction + ArcFace/InsightFace embedding computation.  
+**Rationale**: Face-Lock is a mandatory invariant (CON-003). Mock verification defeats the purpose.  
+**Updated**: Implementation plan must replace mock verification with real frame extraction and embedding computation.
+
+---
+
+### CL-030: Prompt Sanitizer Scope
+**Date**: 2026-08-17  
+**Question**: What should the sanitization step between prompt compilation and moderation do?  
+**Decision**: PII strip (emails, phones, addresses) + per-model character/length constraints + prompt injection pattern removal. Deterministic, rule-based, no LLM.  
+**Rationale**: Lightweight, predictable, no cost. Moderation gate already catches harmful content.  
+**Updated**: Added FR-036 (Prompt Sanitization).
+
+---
+
+### CL-031: LLM Prompt Engine Integration
+**Date**: 2026-08-17  
+**Question**: How should the LLM integrate with the template prompt compiler?  
+**Decision**: LLM enhances template-compiled prompts — adds cinematic detail, style coherence, negative prompts. Template fallback when no LLM key. User reviews/edits prompt before dispatch.  
+**Rationale**: Best of both worlds — creative enhancement when available, reliable fallback when not.  
+**Updated**: FR-016 updated to specify LLM enhancement + template fallback + user review step.
+
+---
+
+### CL-032: Luma Adapter Removal
+**Date**: 2026-08-17  
+**Question**: Luma Ray2 appears in config defaults but no adapter exists. CL-026 removed Luma from scope.  
+**Decision**: Remove luma-ray2 from all config defaults (config.ts:119,129,144,157). Delete luma_key.txt.  
+**Rationale**: Dead config creates false user expectation. Clean removal per CL-026.  
+**Updated**: Implementation plan includes Luma config cleanup.
+
+---
+
+### CL-033: Weak Secrets Strategy
+**Date**: 2026-08-17  
+**Question**: postgres_password='postgres', redis_password=empty, vault_token='root'. How to handle?  
+**Decision**: setup-secrets.sh auto-generates strong random passwords. Existing weak files overwritten only with `--force` flag.  
+**Rationale**: Eliminates operator error. Strong defaults for production.  
+**Updated**: Implementation plan includes setup-secrets.sh hardening.
+
+---
+
+### CL-034: Frontend Test Framework
+**Date**: 2026-08-17  
+**Question**: What testing framework for frontend?  
+**Decision**: Vitest for unit tests (fast, Vite-native) + Playwright for E2E.  
+**Rationale**: Vitest integrates seamlessly with existing Vite build. Playwright already in devDeps.  
+**Updated**: Implementation plan includes Vitest + Playwright setup.
+
+---
+
+### CL-035: MEDIUM Issues Scope
+**Date**: 2026-08-17  
+**Question**: Should MEDIUM issues (dead code, @shared alias, CI Docker build, alertmanager placeholders) be fixed?  
+**Decision**: Fix all MEDIUM issues. ~2h extra effort.  
+**Rationale**: Clean codebase reduces future confusion. CI Docker build enables container deployment.  
+**Updated**: Implementation plan includes all MEDIUM fixes.
+
+---
+
+### CL-036: LLM Provider Selection
+**Date**: 2026-08-17  
+**Question**: Which LLM provider for prompt enhancement?  
+**Decision**: Google Gemini 3.5 Flash. Single-provider implementation.  
+**Rationale**: User's choice — competitive pricing, good quality for prompt enhancement.  
+**Updated**: Implementation plan specifies Gemini 3.5 Flash API integration.
+
+---
+
+### CL-037: Face-Lock Verification Failure
+**Date**: 2026-08-17  
+**Question**: What happens when face verification detects a mismatch?  
+**Decision**: Auto-regenerate the shot up to 2 times (per CL-003 max retries). If still failing after 2 retries, mark shot as failed and alert user. Other shots continue.  
+**Rationale**: Balances automated recovery with user awareness. 2 retries is per CL-003 default.  
+**Updated**: Implementation plan includes face-lock failure path with retry logic.
+
+---
+
+### CL-038: JWT Token Refresh
+**Date**: 2026-08-17  
+**Question**: Should we implement JWT token refresh?  
+**Decision**: No refresh token. 24-hour expiry, re-login required.  
+**Rationale**: Internal tool — simplicity over seamless sessions. Reduces attack surface.  
+**Updated**: FR-035 clarified — no refresh mechanism.
+
+---
+
+### CL-039: Local TTS Engine
+**Date**: 2026-08-17  
+**Question**: Which local TTS engine for free-tier?  
+**Decision**: Piper TTS. C++ inference, ~real-time speed, 20-50MB models.  
+**Rationale**: Fastest inference, smallest footprint, easiest to install. Coqui deferred.  
+**Updated**: CL-027 clarified — Piper as primary local TTS engine.
+
+---
+
+### CL-040: Prompt Review UX
+**Date**: 2026-08-17  
+**Question**: Where should the prompt review step appear in the UX flow?  
+**Decision**: Dedicated review page. After shot plan approval, user navigates to prompt review page, sees compiled prompts for all shots, can edit each, then clicks "Dispatch".  
+**Rationale**: Full-page review gives adequate space for prompt editing. Clean separation of concerns.  
+**Updated**: FR-016 clarified — dedicated review page between plan approval and dispatch.
 
 ---
 

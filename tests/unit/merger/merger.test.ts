@@ -52,16 +52,25 @@ jest.mock('child_process', () => ({
 
 jest.mock('fs/promises', () => ({
   stat: jest.fn(),
+  writeFile: jest.fn(),
 }));
+
+global.fetch = jest.fn().mockResolvedValue({
+  ok: true,
+  status: 200,
+  arrayBuffer: async () => new ArrayBuffer(8),
+  text: async () => '',
+} as Response) as unknown as typeof fetch;
 
 import { query } from '@/shared/db';
 import { spawn } from 'child_process';
-import { stat } from 'fs/promises';
+import { stat, writeFile } from 'fs/promises';
 import type { QueryResult, QueryResultRow } from 'pg';
 
 const mockQuery = query as jest.MockedFunction<typeof query>;
 const mockSpawn = spawn as jest.MockedFunction<typeof spawn>;
 const mockStat = stat as jest.MockedFunction<typeof stat>;
+const mockWriteFile = writeFile as jest.MockedFunction<typeof writeFile>;
 
 function createQueryResult<T extends QueryResultRow>(rows: T[]): QueryResult<T> {
   return {

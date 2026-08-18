@@ -4,7 +4,9 @@
  * Implements FR-022, FR-023, CL-014, CL-015
  */
 
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { config } from '../shared/config.js';
+import { sanitizePrompt } from '../sanitizer/promptSanitizer.js';
 import type {
   ShotPlan,
   CharacterRegistryEntry,
@@ -12,6 +14,7 @@ import type {
   FaceLockConditioning,
   CompiledPrompt as SharedCompiledPrompt,
   CharacterConditioning,
+  ModelConstraints,
 } from '../shared/types.js';
 
 export interface PromptCompilerOptions {
@@ -20,12 +23,121 @@ export interface PromptCompilerOptions {
   stylePreset?: string;
   /** Current retry count for Face-Lock regeneration (used in conditioning) */
   retryCount?: number;
+  /** Skip LLM enhancement (useful for retries) */
+  skipLLM?: boolean;
+}
+
+// ============================================
+// LLM Integration — Gemini 3.5 Flash (B2)
+// ============================================
+
+/**
+ * Enhance a prompt template using Gemini 3.5 Flash
+ * Falls back to template-only on any error (log warning, don't throw)
+ */
+export async function enhancePromptWithLLM(
+  template: string,
+  shot: ShotPlan,
+  apiKey: string
+): Promise<string> {
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+    const contextParts = [
+      `You are a video production prompt enhancer. Enhance the following shot description for a ${shot.durationSeconds}-second video clip.`,
+      shot.cameraMotion ? `Camera motion: ${shot.cameraMotion}.` : '',
+      shot.characters.length > 0 ? `Characters present: ${shot.characters.join(', ')}.` : '',
+      shot.keyObjects.length > 0 ? `Key objects: ${shot.keyObjects.join(', ')}.` : '',
+      shot.keyActions.length > 0 ? `Key actions: ${shot.keyActions.join(', ')}.` : '',
+      shot.audioCues && shot.audioCues.length > 0 ? `Audio cues: ${shot.audioCues.join(', ')}.` : '',
+      '',
+      'Original prompt:',
+      template,
+      '',
+      'Return ONLY the enhanced prompt text, nothing else. Keep it under 4000 characters.',
+    ].filter(Boolean).join('\n');
+
+    const result = await model.generateContent(contextParts);
+    const response = result.response;
+    const enhanced = response.text();
+
+    if (enhanced && enhanced.length > 0 && enhanced.length <= 6000) {
+      return enhanced.trim();
+    }
+
+    // Fallback if response is empty or too long
+    console.warn('LLM enhancement returned invalid response, falling back to template');
+    return template;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown LLM error';
+    console.warn(`LLM enhancement failed, falling back to template-only: ${message}`);
+    return template;
+  }
+}
+
+// ============================================
+// Script Chunking (B3)
+// ============================================
+
+/**
+ * Split a long script into chunks of maxChars each
+ * Tries to split on paragraph boundaries first, then sentence boundaries as fallback
+ */
+export function chunkScript(script: string, maxChars: number = 5000): string[] {
+  if (script.length <= maxChars) {
+    return [script];
+  }
+
+  const chunks: string[] = [];
+  let remaining = script;
+
+  while (remaining.length > 0) {
+    if (remaining.length <= maxChars) {
+      chunks.push(remaining);
+      break;
+    }
+
+    // Try to find a paragraph boundary (\n\n) within maxChars
+    let splitIndex = -1;
+    const paragraphEnd = remaining.lastIndexOf('\n\n', maxChars);
+    if (paragraphEnd > maxChars * 0.3) {
+      splitIndex = paragraphEnd + 2;
+    }
+
+    // Fallback: try sentence boundary
+    if (splitIndex === -1) {
+      const sentenceEnd = remaining.lastIndexOf('. ', maxChars);
+      if (sentenceEnd > maxChars * 0.3) {
+        splitIndex = sentenceEnd + 2;
+      }
+    }
+
+    // Fallback: try any whitespace
+    if (splitIndex === -1) {
+      const spaceIndex = remaining.lastIndexOf(' ', maxChars);
+      if (spaceIndex > maxChars * 0.3) {
+        splitIndex = spaceIndex + 1;
+      }
+    }
+
+    // Hard split as last resort
+    if (splitIndex === -1) {
+      splitIndex = maxChars;
+    }
+
+    chunks.push(remaining.substring(0, splitIndex).trim());
+    remaining = remaining.substring(splitIndex).trim();
+  }
+
+  return chunks.filter(c => c.length > 0);
 }
 
 /**
  * Main prompt compilation function
  * Builds generation prompts per shot with character identity conditioning
  * Returns CompiledPrompt with multi-character Face-Lock conditioning (characterConditioning[])
+ * Includes LLM enhancement (B2) and sanitizer wiring (F2)
  */
 export async function compilePrompt(
   shot: ShotPlan,
@@ -33,10 +145,15 @@ export async function compilePrompt(
   model: ModelCapabilities,
   options: PromptCompilerOptions = {}
 ): Promise<SharedCompiledPrompt> {
-  const { includeNegativePrompt = true, maxPromptLength = 4000, stylePreset } = options;
+  const { includeNegativePrompt = true, maxPromptLength = 4000, stylePreset, skipLLM = false } = options;
 
   // Build base prompt from shot description
   let prompt = buildBasePrompt(shot, stylePreset);
+
+  // Apply LLM enhancement if API key is configured (B2)
+  if (!skipLLM && config.llmApiKey) {
+    prompt = await enhancePromptWithLLM(prompt, shot, config.llmApiKey);
+  }
 
   // Apply character identity conditioning (Face-Lock) - multi-character support
   const faceLockConditionings = await buildMultiFaceLockConditioning(shot, characters, model, options.retryCount);
@@ -46,6 +163,17 @@ export async function compilePrompt(
 
   // Handle reference images for characters in this shot
   const referenceImages = collectReferenceImages(shot, characters);
+
+  // Sanitize prompt before dispatch (F2)
+  const modelConstraints: ModelConstraints = {
+    modelId: model.id,
+    maxLength: maxPromptLength,
+  };
+  const sanitized = sanitizePrompt(prompt, modelConstraints);
+  if (sanitized.warnings.length > 0) {
+    console.warn(`Prompt sanitizer warnings for shot ${shot.id}:`, sanitized.warnings);
+  }
+  prompt = sanitized.sanitized;
 
   // Truncate if needed
   if (prompt.length > maxPromptLength) {

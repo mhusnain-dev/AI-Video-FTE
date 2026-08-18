@@ -52,15 +52,15 @@ export const STORY_TRANSITIONS: StateTransition<StoryState>[] = [
   { from: 'awaiting_approval', to: 'planning', action: 'user_revise' },
   { from: 'approved', to: 'in_progress', action: 'start_generation' },
   { from: 'in_progress', to: 'generating', action: 'dispatch_shots' },
+  { from: 'generating', to: 'pending_merge', action: 'all_shots_completed' },
   {
-    from: 'generating',
+    from: 'pending_merge',
     to: 'merging',
-    action: 'all_shots_completed',
+    action: 'user_approve_merge',
     sideEffects: [async (context) => {
       // Generate cross-shot Face-Lock consistency report (Task 39)
       try {
         const { generateCrossShotConsistencyReport } = await import('../verification/faceLockVerification.js');
-        // emitCrossShotConsistencyReport is defined in this file, no import needed
         const report = await generateCrossShotConsistencyReport(context.entityId);
         await emitCrossShotConsistencyReport(context.entityId, report);
         console.log(`Cross-shot consistency report generated for story ${context.entityId}`);

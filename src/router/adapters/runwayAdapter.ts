@@ -9,7 +9,8 @@ import crypto from 'crypto';
 import { BaseModelAdapter, registerAdapterFactory } from '../modelAdapter.js';
 import type { CompiledPrompt, GenerationResult, WebhookPayload, ModelCapability } from '../../shared/types.js';
 
-const RUNWAY_API_BASE = 'https://api.runwayml.com/v1';
+const RUNWAY_API_BASE = 'https://api.dev.runwayml.com/v1';
+const RUNWAY_API_VERSION = '2024-11-06';
 const RUNWAY_WEBHOOK_SECRET = process.env.RUNWAY_WEBHOOK_SECRET || 'runway-webhook-secret';
 
 interface RunwayConfig {
@@ -19,12 +20,18 @@ interface RunwayConfig {
 
 interface RunwayTaskResponse {
   id: string;
-  status: 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
-  output?: {
-    video_url: string;
-    duration: number;
-  };
+  status: 'PENDING' | 'PROCESSING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | 'THROTTLED';
+  output?: string[];
+  failure?: string;
   error?: string;
+}
+
+interface RunwayGenerateRequest {
+  model: string;
+  promptText: string;
+  ratio: string;
+  duration: number;
+  promptImage?: string;
 }
 
 export class RunwayAdapter extends BaseModelAdapter {
@@ -42,6 +49,7 @@ export class RunwayAdapter extends BaseModelAdapter {
       headers: {
         'Authorization': `Bearer ${config.apiKey}`,
         'Content-Type': 'application/json',
+        'X-Runway-Version': RUNWAY_API_VERSION,
       },
       timeout: 300000,
     });
@@ -49,9 +57,10 @@ export class RunwayAdapter extends BaseModelAdapter {
 
   protected async makeDispatchRequest(prompt: CompiledPrompt): Promise<{ providerRequestId: string; estimatedCompletionMs?: number }> {
     const requestBody = this.buildRunwayRequest(prompt);
+    const endpoint = requestBody.promptImage ? '/image_to_video' : '/text_to_video';
 
     const response = await this.httpClient.post<RunwayTaskResponse>(
-      '/tasks',
+      endpoint,
       requestBody
     );
 
@@ -66,14 +75,14 @@ export class RunwayAdapter extends BaseModelAdapter {
 
     switch (response.data.status) {
       case 'SUCCEEDED':
-        if (response.data.output?.video_url) {
+        if (response.data.output?.[0]) {
           return {
             status: 'completed',
             result: {
               shotId: '',
-              videoUrl: response.data.output.video_url,
-              durationSeconds: response.data.output.duration || this.getMaxDurationSeconds(),
-              actualCost: this.getCostPerSecond() * (response.data.output.duration || this.getMaxDurationSeconds()),
+              videoUrl: response.data.output[0],
+              durationSeconds: this.getMaxDurationSeconds(),
+              actualCost: this.getCostPerSecond() * this.getMaxDurationSeconds(),
               modelId: this.modelId,
               providerMetadata: { taskId: providerRequestId },
             },
@@ -82,10 +91,12 @@ export class RunwayAdapter extends BaseModelAdapter {
         return { status: 'failed', error: 'No output video' };
 
       case 'FAILED':
-        return { status: 'failed', error: response.data.error || 'Generation failed' };
+        return { status: 'failed', error: response.data.failure || response.data.error || 'Generation failed' };
 
       case 'PENDING':
+      case 'PROCESSING':
       case 'RUNNING':
+      case 'THROTTLED':
         return { status: 'processing' };
 
       default:
@@ -156,18 +167,15 @@ export class RunwayAdapter extends BaseModelAdapter {
     return ['16:9', '9:16'];
   }
 
-  private buildRunwayRequest(prompt: CompiledPrompt): any {
-    const request: any = {
-      model: 'gen3a_turbo',
-      prompt: prompt.prompt,
-      negative_prompt: prompt.negativePrompt,
-      aspect_ratio: prompt.modelParams.aspectRatio || '16:9',
-      duration: prompt.modelParams.durationSeconds || 10,
+  private buildRunwayRequest(prompt: CompiledPrompt): RunwayGenerateRequest {
+    const request: RunwayGenerateRequest = {
+      model: 'gen4.5',
+      promptText: prompt.prompt,
+      ratio: this.mapAspectRatio((prompt.modelParams.aspectRatio as string) || '16:9'),
+      duration: this.clampDuration((prompt.modelParams.durationSeconds as number) || 8),
     };
 
-    // Runway Gen-3 only supports a single reference image
-    // For multi-character shots, use primary character (first in characterConditioning array)
-    // Log warning for visibility; future enhancement: composite image
+    // Runway accepts a single reference image (HTTPS URL, data URI, or runway:// URI)
     if (prompt.characterConditioning.length > 0) {
       if (prompt.characterConditioning.length > 1) {
         console.warn(
@@ -177,10 +185,30 @@ export class RunwayAdapter extends BaseModelAdapter {
           `not included in Runway request (single-image limitation).`
         );
       }
-      request.image = prompt.characterConditioning[0].referenceImageBase64;
+      const img = String(prompt.characterConditioning[0].referenceImageBase64 || '');
+      if (img) {
+        request.promptImage = img.startsWith('data:') || img.startsWith('http')
+          ? img
+          : `data:image/jpeg;base64,${img}`;
+      }
     }
 
     return request;
+  }
+
+  private mapAspectRatio(aspectRatio: string): string {
+    const map: Record<string, string> = {
+      '16:9': '1280:720',
+      '9:16': '720:1280',
+      '1:1': '960:960',
+      '4:5': '832:1104',
+    };
+    return map[aspectRatio] || '1280:720';
+  }
+
+  private clampDuration(durationSeconds: number): number {
+    // gen4.5 supports 5s or 10s
+    return durationSeconds <= 5 ? 5 : 10;
   }
 }
 

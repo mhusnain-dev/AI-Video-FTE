@@ -11,7 +11,7 @@ import { checkSacredGuard } from './sacredGuard.js';
 import { checkCostGuard, recordCostGuardAudit } from './costGuard.js';
 import { checkRateLimit, recordRateLimitAudit } from './rateLimitGate.js';
 import { shotStateMachine } from '../shared/events.js';
-import type { AdmissionContext, AdmissionResult, AdmissionDecision } from '../shared/types.js';
+import type { AdmissionContext } from '../shared/types.js';
 // Metrics
 import {
   admissionPipelineDurationSeconds,

@@ -177,7 +177,7 @@ async function moderateText(text: string, moderationConfig: ModerationConfig): P
  * In production: use Vision API (Google Cloud Vision, AWS Rekognition, Azure Computer Vision)
  * or specialized NSFW/CSAM detection models
  */
-async function moderateImage(imageBase64: string, moderationConfig: ModerationConfig): Promise<ModerationResult> {
+async function moderateImage(imageBase64: string, _moderationConfig: ModerationConfig): Promise<ModerationResult> {
   // Validate base64
   if (!imageBase64 || imageBase64.length < 100) {
     return { blocked: false };

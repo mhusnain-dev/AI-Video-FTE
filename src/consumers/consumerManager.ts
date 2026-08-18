@@ -74,21 +74,17 @@ export class ConsumerManager {
     // Create consumers
     await this.createConsumers();
 
-    // Start all consumers
-    const startPromises = Array.from(this.consumers.entries()).map(
-      async ([name, consumer]) => {
-        try {
-          console.log(`Starting consumer: ${name}`);
-          await consumer.start();
-          console.log(`Consumer ${name} started successfully`);
-        } catch (error) {
-          console.error(`Failed to start consumer ${name}:`, error);
-          throw error;
-        }
+    // Start all consumers sequentially to avoid Redis connection races
+    for (const [name, consumer] of this.consumers.entries()) {
+      try {
+        console.log(`Starting consumer: ${name}`);
+        await consumer.start();
+        console.log(`Consumer ${name} started successfully`);
+      } catch (error) {
+        console.error(`Failed to start consumer ${name}:`, error);
+        throw error;
       }
-    );
-
-    await Promise.all(startPromises);
+    }
 
     // Start health checks
     this.startHealthChecks();

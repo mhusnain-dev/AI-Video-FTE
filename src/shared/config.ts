@@ -6,7 +6,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'yaml';
-import { AppConfig, PostgresConfig, RedisConfig, VaultConfig } from './types.js';
+import 'dotenv/config';
+import { AppConfig } from './types.js';
 
 const CONFIG_DIR = process.env.CONFIG_DIR || path.join(process.cwd(), 'config');
 
@@ -43,7 +44,11 @@ function getSecret(
   const standardPath = `/run/secrets/${secretName}`;
   const value = readSecretFile(standardPath);
   if (value) return value;
-  // 3. Fall back to regular environment variable
+  // 3. Check local ./secrets directory (dev convenience - matches secret file names)
+  const localPath = path.join(process.cwd(), 'secrets', `${secretName}.txt`);
+  const localValue = readSecretFile(localPath);
+  if (localValue) return localValue;
+  // 4. Fall back to regular environment variable
   return process.env[envVar];
 }
 
@@ -95,7 +100,7 @@ function getDefaults(): AppConfig {
     },
 
     router: {
-      systemDefaultPriority: ['veo3-low', 'veo3-high', 'runway-gen3', 'luma-ray2'],
+      systemDefaultPriority: ['kie-veo3-fast', 'kie-veo3-quality', 'kie-veo3-lite', 'runway-gen3'],
       eligibilityCheckEnabled: true,
     },
 
@@ -108,18 +113,18 @@ function getDefaults(): AppConfig {
       sacredGuard: {
         visualSimilarityThreshold: 0.775, // Mid-range of 0.75-0.80
         perModelThresholds: {
-          'veo3-low': 0.78,
-          'veo3-high': 0.77,
+          'kie-veo3-fast': 0.78,
+          'kie-veo3-quality': 0.77,
+          'kie-veo3-lite': 0.79,
           'runway-gen3': 0.79,
-          'luma-ray2': 0.80,
         },
       },
       costGuard: {
         perModelEstimates: {
-          'veo3-low': 0.00,
-          'veo3-high': 0.05, // $0.05/second
+          'kie-veo3-fast': 0.01,
+          'kie-veo3-quality': 0.04,
+          'kie-veo3-lite': 0.005,
           'runway-gen3': 0.08, // $0.08/second
-          'luma-ray2': 0.03, // $0.03/second
         },
         userBudgetUsd: 100.00,
         projectCeilingUsd: 500.00,
@@ -129,10 +134,10 @@ function getDefaults(): AppConfig {
       },
       rateLimit: {
         perModel: {
-          'veo3-low': 10,
-          'veo3-high': 5,
+          'kie-veo3-fast': 10,
+          'kie-veo3-quality': 5,
+          'kie-veo3-lite': 20,
           'runway-gen3': 5,
-          'luma-ray2': 20,
         },
         perUser: 20,
         global: 100,
@@ -143,10 +148,10 @@ function getDefaults(): AppConfig {
 
     dispatch: {
       defaultTimeouts: {
-        'veo3-low': 120,
-        'veo3-high': 180,
+        'kie-veo3-fast': 120,
+        'kie-veo3-quality': 180,
+        'kie-veo3-lite': 120,
         'runway-gen3': 180,
-        'luma-ray2': 120,
       },
       watchdogPollIntervalMs: 30000,
       watchdogMaxWaitMs: 600000, // 10 minutes
@@ -159,7 +164,6 @@ function getDefaults(): AppConfig {
         'veo3-low': 0.82,
         'veo3-high': 0.80,
         'runway-gen3': 0.85,
-        'luma-ray2': 0.78,
       },
       maxRetries: 2,
       perModelCharacterRetries: {},
@@ -188,6 +192,16 @@ function getDefaults(): AppConfig {
         localPath: process.env.ARCHIVE_LOCAL_PATH || './data/archive',
       },
     },
+
+    adminEmail: '',
+    smtp: {
+      host: 'smtp.example.com',
+      port: 587,
+      user: '',
+      pass: '',
+      fromEmail: 'noreply@example.com',
+    },
+    frontendUrl: 'http://localhost:5173',
   };
 }
 
@@ -237,19 +251,48 @@ function getEnvOverrides(): Partial<AppConfig> {
   // API Keys (loaded into config for adapter use) - support _FILE variants
   const elevenlabsKey = getSecret('ELEVENLABS_API_KEY_FILE', 'elevenlabs_key', 'ELEVENLABS_API_KEY');
   if (elevenlabsKey) {
-    (overrides as any).elevenlabsApiKey = elevenlabsKey;
+    overrides.elevenlabsApiKey = elevenlabsKey;
   }
   const veoKey = getSecret('VEO_API_KEY_FILE', 'veo_key', 'VEO_API_KEY');
   if (veoKey) {
-    (overrides as any).veoApiKey = veoKey;
+    overrides.veoApiKey = veoKey;
   }
   const runwayKey = getSecret('RUNWAY_API_KEY_FILE', 'runway_key', 'RUNWAY_API_KEY');
   if (runwayKey) {
-    (overrides as any).runwayApiKey = runwayKey;
+    overrides.runwayApiKey = runwayKey;
   }
-  const lumaKey = getSecret('LUMA_API_KEY_FILE', 'luma_key', 'LUMA_API_KEY');
-  if (lumaKey) {
-    (overrides as any).lumaApiKey = lumaKey;
+  const kieKey = getSecret('KIE_API_KEY_FILE', 'kie_key', 'KIE_API_KEY');
+  if (kieKey) {
+    overrides.kieApiKey = kieKey;
+  }
+  const llmKey = getSecret('LLM_API_KEY_FILE', 'llm_api_key', 'LLM_API_KEY');
+  if (llmKey) {
+    overrides.llmApiKey = llmKey;
+  }
+
+  // Admin email
+  if (process.env.ADMIN_EMAIL) {
+    overrides.adminEmail = process.env.ADMIN_EMAIL;
+  }
+
+  // SMTP config from secrets/smtp.txt
+  const smtpLines = readSecretFile(path.join(process.cwd(), 'secrets', 'smtp.txt'));
+  if (smtpLines) {
+    const lines = smtpLines.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+    if (lines.length >= 5) {
+      overrides.smtp = {
+        host: lines[0],
+        port: parseInt(lines[1]),
+        user: lines[2],
+        pass: lines[3],
+        fromEmail: lines[4],
+      };
+    }
+  }
+
+  // Frontend URL
+  if (process.env.FRONTEND_URL) {
+    overrides.frontendUrl = process.env.FRONTEND_URL;
   }
 
   return overrides;

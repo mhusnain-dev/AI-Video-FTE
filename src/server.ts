@@ -4,6 +4,7 @@
  */
 
 import express, { Request, Response, NextFunction } from 'express';
+import cors from 'cors';
 import { config } from './shared/config.js';
 import { closePool } from './shared/db.js';
 import { closeRedis } from './shared/redis.js';
@@ -28,8 +29,29 @@ import dispatchRoutes from './dispatch/routes.js';
 import mergerRoutes from './merger/routes.js';
 import userPriorityRoutes from './router/userPriorityRoutes.js';
 import { handleStoryStream } from './routes/events.js';
+import auxiliaryRoutes from './routes/auxiliary.js';
+
+// New route modules (B9, F5, F7, F10, Phase M)
+import authRoutes from './auth/authRoutes.js';
+import settingsRoutes from './settings/settingsRoutes.js';
+import feedbackRoutes from './feedback/feedbackRoutes.js';
+import promptReviewRoutes from './generation/promptReviewRoutes.js';
+import adminRoutes from './admin/adminRoutes.js';
+import { authMiddleware, adminMiddleware } from './auth/authMiddleware.js';
 
 const app = express();
+
+// CORS — allow frontend dev server and any local origin
+app.use(cors({
+  origin: [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:3000',
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -66,6 +88,26 @@ app.use('/merger', mergerRoutes);
 // Model Priority compatibility alias for frontend (/api/users/.../model-priority)
 // Reuses existing modelRegistry business logic via userPriorityRoutes
 app.use('/api', userPriorityRoutes);
+
+// Frontend API aliases — mount existing routers at /api/* paths the frontend expects
+app.use('/api/router', routerRoutes);
+app.use('/api/merger', mergerRoutes);
+app.use('/api/admission', admissionRoutes);
+app.use('/api/dispatch', dispatchRoutes);
+
+// Auxiliary routes for endpoints not in other route files (shots, characters, users, sacred-guard, etc.)
+app.use('/api', auxiliaryRoutes);
+
+// Auth routes (F9) — public, no auth required
+app.use('/auth', authRoutes);
+
+// Protected API routes — require JWT auth middleware
+app.use('/api/settings', authMiddleware, settingsRoutes);
+app.use('/api/stories', authMiddleware, feedbackRoutes);
+app.use('/api/stories', authMiddleware, promptReviewRoutes);
+
+// Admin routes — require JWT + admin role
+app.use('/admin', authMiddleware, adminMiddleware, adminRoutes);
 
 // SSE Events
 app.get('/api/stories/:id/stream', handleStoryStream);

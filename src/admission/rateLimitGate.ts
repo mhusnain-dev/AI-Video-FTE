@@ -6,7 +6,7 @@
 
 import { query } from '../shared/db.js';
 import { config } from '../shared/config.js';
-import type { AdmissionContext, RateLimitConfig } from '../shared/types.js';
+import type { AdmissionContext } from '../shared/types.js';
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -135,7 +135,7 @@ async function recordUsage(scopeType: string, scopeKey: string, timestamp: Date)
 /**
  * Get project ID for a story (if stories belong to projects)
  */
-async function getProjectIdForStory(storyId: string): Promise<string | null> {
+async function getProjectIdForStory(_storyId: string): Promise<string | null> {
   // In this implementation, stories don't have project_id by default
   // Could be extended if needed
   return null;

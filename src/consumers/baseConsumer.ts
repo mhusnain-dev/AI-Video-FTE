@@ -4,10 +4,9 @@
  * Implements FR-031, FR-032, FR-034, NFR-004, NFR-005
  */
 
-import { getRedis, consumeStream, acknowledgeMessage, claimStalledMessages, STREAMS, CONSUMER_GROUPS } from '../shared/redis.js';
+import { getRedis, ensureRedisConnected, consumeStream, acknowledgeMessage, claimStalledMessages } from '../shared/redis.js';
 import { query } from '../shared/db.js';
 import type { StreamMessage, StateChangeEvent } from '../shared/types.js';
-import { config } from '../shared/config.js';
 
 export interface ConsumerOptions {
   /** Consumer group name (from CONSUMER_GROUPS) */
@@ -83,7 +82,7 @@ export abstract class BaseConsumer {
 
     // Ensure streams and consumer groups exist
     const redis = getRedis();
-    await redis.connect();
+    await ensureRedisConnected();
 
     // Run consumer loop
     this.runLoop();

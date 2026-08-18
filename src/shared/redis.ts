@@ -32,6 +32,7 @@ const CONSUMER_GROUPS = {
 
 function getRedisClient(): RedisType {
   if (!redis) {
+    console.log('[Redis] Creating new Redis client');
     redis = new RedisClient({
       host: config.redis.host,
       port: config.redis.port,
@@ -40,23 +41,56 @@ function getRedisClient(): RedisType {
       maxRetriesPerRequest: 3,
       retryStrategy: (times: number) => Math.min(times * 100, 3000),
       enableReadyCheck: true,
-      lazyConnect: true,
+      lazyConnect: false,
     });
 
     redis.on('error', (err: Error) => {
-      console.error('Redis connection error:', err);
+      console.error('[Redis] Connection error:', err.message);
     });
 
     redis.on('connect', () => {
-      console.log('Redis connected');
+      console.log('[Redis] Connected');
       redisConnectionGauge.set(1);
     });
 
+    redis.on('ready', () => {
+      console.log('[Redis] Ready');
+    });
+
     redis.on('close', () => {
+      console.log('[Redis] Connection closed');
       redisConnectionGauge.set(0);
     });
+
+    redis.on('reconnecting', () => {
+      console.log('[Redis] Reconnecting...');
+    });
+  } else {
+    console.log('[Redis] Returning existing client, status:', redis.status);
   }
   return redis!;
+}
+
+export async function ensureRedisConnected(): Promise<void> {
+  const r = getRedis();
+  console.log('[Redis] ensureRedisConnected called, status:', r.status);
+  if (r.status === 'ready') {
+    console.log('[Redis] Already ready');
+    return;
+  }
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Redis connection timeout')), 10000);
+    r.once('ready', () => {
+      clearTimeout(timeout);
+      console.log('[Redis] ensureRedisConnected resolved');
+      resolve();
+    });
+    r.once('error', (err) => {
+      clearTimeout(timeout);
+      console.error('[Redis] ensureRedisConnected error:', err.message);
+      reject(err);
+    });
+  });
 }
 
 export function getRedis(): RedisType {
@@ -87,18 +121,24 @@ async function measureRedisCommand<T>(command: string, fn: () => Promise<T>): Pr
 }
 
 export async function initializeStreams(): Promise<void> {
+  console.log('[Redis] initializeStreams starting');
   const r = getRedis();
-  if (r.status !== 'ready') {
-    await r.connect();
-  }
+  await ensureRedisConnected();
 
-  // Create consumer groups for each stream
-  for (const [streamName, groupName] of Object.entries({
-    [STREAMS.STORY_COMMANDS]: CONSUMER_GROUPS.COMMAND_HANDLER,
-    [STREAMS.STORY_EVENTS]: CONSUMER_GROUPS.EVENT_PROCESSOR,
-    [STREAMS.WEBHOOK_INGRESS]: CONSUMER_GROUPS.WEBHOOK_HANDLER,
-    [STREAMS.JOB_STATUS]: CONSUMER_GROUPS.JOB_MONITOR,
-  })) {
+  // Create consumer groups for each stream (some streams have multiple groups)
+  const groups: Array<[string, string]> = [
+    [STREAMS.STORY_COMMANDS, CONSUMER_GROUPS.COMMAND_HANDLER],
+    [STREAMS.STORY_EVENTS, CONSUMER_GROUPS.EVENT_PROCESSOR],
+    [STREAMS.STORY_EVENTS, CONSUMER_GROUPS.DASHBOARD_UPDATER],
+    [STREAMS.STORY_EVENTS, CONSUMER_GROUPS.METRICS_AGGREGATOR],
+    [STREAMS.STORY_EVENTS, CONSUMER_GROUPS.ALERT_EVALUATOR],
+    [STREAMS.STORY_EVENTS, CONSUMER_GROUPS.AUDIT_ARCHIVER],
+    [STREAMS.WEBHOOK_INGRESS, CONSUMER_GROUPS.WEBHOOK_HANDLER],
+    [STREAMS.JOB_STATUS, CONSUMER_GROUPS.JOB_MONITOR],
+  ];
+
+  for (const [streamName, groupName] of groups) {
+    console.log(`[Redis] Creating group ${groupName} for ${streamName}`);
     try {
       await r.xgroup('CREATE', streamName, groupName, '0', 'MKSTREAM');
       console.log(`Created consumer group ${groupName} for ${streamName}`);
@@ -171,19 +211,27 @@ export async function consumeStream(
       'BLOCK', blockMs,
       'STREAMS', stream, '>'
     )
-  ) as [string, [string, [string, string][]][]][];
+  ) as [string, [string, string[]][]][];
 
   if (!results) return [];
 
-  // results is [ [streamName, [[id, [key, val, ...]], ...]], ... ]
+  // results is [ [streamName, [[id, [key1, val1, key2, val2, ...]], ...]], ... ]
   return results.flatMap((entry) => {
     const streamName = entry[0];
     const messages = entry[1];
-    return messages.map((msg) => ({
-      id: msg[0],
-      stream: streamName,
-      data: Object.fromEntries(msg[1]),
-    }));
+    return messages.map((msg) => {
+      const flatFields = msg[1];
+      // Convert flat [k1, v1, k2, v2, ...] to object
+      const data: Record<string, string> = {};
+      for (let i = 0; i < flatFields.length; i += 2) {
+        data[flatFields[i]] = flatFields[i + 1];
+      }
+      return {
+        id: msg[0],
+        stream: streamName,
+        data,
+      };
+    });
   });
 }
 
@@ -209,16 +257,23 @@ export async function claimStalledMessages(
       '0-0',
       'COUNT', count
     )
-  ) as [string, [string, [string, string][]][]] | null;
+  ) as [string, [string, string[]][]] | null;
 
   if (!results) return [];
 
   // results[1] is the array of messages from xautoclaim
-  return results[1].map((msg): StreamMessage => ({
-    id: msg[0],
-    stream,
-    data: Object.fromEntries(msg[1]),
-  }));
+  return results[1].map((msg): StreamMessage => {
+    const flatFields = msg[1];
+    const data: Record<string, string> = {};
+    for (let i = 0; i < flatFields.length; i += 2) {
+      data[flatFields[i]] = flatFields[i + 1];
+    }
+    return {
+      id: msg[0],
+      stream,
+      data,
+    };
+  });
 }
 
 // ============================================

@@ -200,6 +200,9 @@ describe('Webhook Handler', () => {
         .mockResolvedValueOnce({ rows: [{ user_id: 'user-1' }] }) // story
         .mockResolvedValueOnce({ rows: [] }); // recordActualCost
 
+      // Catch-all for remaining queries (face-lock, checkAllShots, etc.)
+      mockQuery.mockResolvedValue({ rows: [] });
+
       await handleWebhook(mockProvider, mockPayload, { skipVerification: true });
 
       expect(mockAdapter.verifyWebhook).not.toHaveBeenCalled();
@@ -226,6 +229,9 @@ describe('Webhook Handler', () => {
         .mockResolvedValueOnce({ rows: [] }) // recordActualCost INSERT
         .mockResolvedValueOnce({ rows: [] }) // emitShotStateChange (INSERT story_events)
         .mockResolvedValueOnce({ rows: [{ characters: ['John'], story_id: 'story-1' }] }); // storeFaceLockVerificationData
+
+      // Catch-all for remaining queries (face-lock, checkAllShots, etc.)
+      mockQuery.mockResolvedValue({ rows: [] });
 
       await handleWebhook(mockProvider, payloadWithCost);
 

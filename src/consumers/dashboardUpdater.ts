@@ -70,7 +70,7 @@ export class DashboardUpdaterConsumer extends BaseConsumer {
       blockMs: options.blockMs ?? 1000,
     });
 
-    this.refreshIntervalMs = options.refreshIntervalMs ?? 5000;
+    this.refreshIntervalMs = options.refreshIntervalMs ?? 60000;
     this.realtime = options.realtime ?? true;
 
     this.viewState = {
@@ -87,14 +87,15 @@ export class DashboardUpdaterConsumer extends BaseConsumer {
   async start(): Promise<void> {
     await super.start();
 
-    // Load initial state from database
-    await this.loadInitialState();
-
-    // Start periodic refresh of materialized views
-    if (this.realtime) {
-      this.refreshTimer = setInterval(() => this.refreshViews(), this.refreshIntervalMs);
-      this.refreshTimer.unref();
-    }
+    // Delay initial state load to let Postgres stabilize after consumer startup
+    setTimeout(async () => {
+      await this.loadInitialState();
+      // Start periodic refresh of materialized views
+      if (this.realtime) {
+        this.refreshTimer = setInterval(() => this.refreshViews(), this.refreshIntervalMs);
+        this.refreshTimer.unref();
+      }
+    }, 5000);
 
     console.log('Dashboard Updater started');
   }
@@ -159,9 +160,9 @@ export class DashboardUpdaterConsumer extends BaseConsumer {
 
       // Load webhook counts
       const webhooks = await query(
-        `SELECT provider, COUNT(*) as cnt FROM dispatch_records
+        `SELECT model_id as provider, COUNT(*) as cnt FROM dispatch_records
          WHERE dispatched_at > NOW() - INTERVAL '1 hour'
-         GROUP BY provider`
+         GROUP BY model_id`
       );
       for (const row of webhooks.rows) {
         this.viewState.webhookCounts.set(row.provider, { received: parseInt(row.cnt), unrecognized: 0 });
@@ -281,136 +282,146 @@ export class DashboardUpdaterConsumer extends BaseConsumer {
    * Refresh materialized views in database
    */
   private async refreshViews(): Promise<void> {
-    try {
-      // Refresh story state summary view
-      await this.refreshStoryStateSummary();
+    const refreshers = [
+      () => this.refreshStoryStateSummary(),
+      () => this.refreshShotStateSummary(),
+      () => this.refreshCostSummary(),
+      () => this.refreshProviderHealth(),
+      () => this.refreshFaceLockMetrics(),
+      () => this.refreshQueueDepth(),
+    ];
 
-      // Refresh shot state summary view
-      await this.refreshShotStateSummary();
-
-      // Refresh cost summary view
-      await this.refreshCostSummary();
-
-      // Refresh provider health view
-      await this.refreshProviderHealth();
-
-      // Refresh Face-Lock metrics view
-      await this.refreshFaceLockMetrics();
-
-      // Refresh queue depth view
-      await this.refreshQueueDepth();
-
-    } catch (error) {
-      console.error('Dashboard view refresh failed:', error);
+    for (const refresh of refreshers) {
+      try {
+        await refresh();
+      } catch (error) {
+        // Non-fatal: dashboard views are observational, not critical path
+        console.warn('Dashboard view refresh skipped:', (error as Error).message?.slice(0, 120));
+      }
     }
   }
 
   private async refreshStoryStateSummary(): Promise<void> {
-    // Materialized view: story_state_summary
-    await query(`
-      CREATE MATERIALIZED VIEW IF NOT EXISTS story_state_summary AS
-      SELECT
-        status,
-        COUNT(*) as story_count,
-        MAX(updated_at) as last_update
-      FROM stories
-      WHERE updated_at > NOW() - INTERVAL '24 hours'
-      GROUP BY status
-    `);
-
-    await query(`REFRESH MATERIALIZED VIEW CONCURRENTLY story_state_summary`);
+    try {
+      await query(`
+        CREATE MATERIALIZED VIEW IF NOT EXISTS story_state_summary AS
+        SELECT
+          status,
+          COUNT(*) as story_count,
+          AVG(EXTRACT(EPOCH FROM (updated_at - created_at))) as avg_age_seconds
+        FROM stories
+        WHERE created_at > NOW() - INTERVAL '7 days'
+        GROUP BY status
+      `);
+      await query(`REFRESH MATERIALIZED VIEW story_state_summary`);
+    } catch (error) {
+      console.warn('story_state_summary refresh skipped:', (error as Error).message?.slice(0, 100));
+    }
   }
 
   private async refreshShotStateSummary(): Promise<void> {
-    // Materialized view: shot_state_summary
-    await query(`
-      CREATE MATERIALIZED VIEW IF NOT EXISTS shot_state_summary AS
-      SELECT
-        s.status,
-        s.model_id,
-        COUNT(*) as shot_count,
-        AVG(EXTRACT(EPOCH FROM (s.completed_at - s.created_at))) as avg_duration_seconds
-      FROM shots s
-      WHERE s.created_at > NOW() - INTERVAL '24 hours'
-      GROUP BY s.status, s.model_id
-    `);
-
-    await query(`REFRESH MATERIALIZED VIEW CONCURRENTLY shot_state_summary`);
+    try {
+      await query(`
+        CREATE MATERIALIZED VIEW IF NOT EXISTS shot_state_summary AS
+        SELECT
+          s.status,
+          s.model_id,
+          COUNT(*) as shot_count,
+          AVG(EXTRACT(EPOCH FROM (s.generation_completed_at - s.created_at))) as avg_duration_seconds
+        FROM shots s
+        WHERE s.created_at > NOW() - INTERVAL '24 hours'
+        GROUP BY s.status, s.model_id
+      `);
+      await query(`REFRESH MATERIALIZED VIEW shot_state_summary`);
+    } catch (error) {
+      console.warn('shot_state_summary refresh skipped:', (error as Error).message?.slice(0, 100));
+    }
   }
 
   private async refreshCostSummary(): Promise<void> {
-    // Materialized view: cost_summary_hourly
-    await query(`
-      CREATE MATERIALIZED VIEW IF NOT EXISTS cost_summary_hourly AS
-      SELECT
-        DATE_TRUNC('hour', created_at) as hour,
-        model_id,
-        cost_type,
-        SUM(amount_usd) as total_cost_usd,
-        COUNT(*) as transaction_count
-      FROM cost_records
-      WHERE created_at > NOW() - INTERVAL '7 days'
-      GROUP BY DATE_TRUNC('hour', created_at), model_id, cost_type
-    `);
-
-    await query(`REFRESH MATERIALIZED VIEW CONCURRENTLY cost_summary_hourly`);
+    try {
+      await query(`
+        CREATE MATERIALIZED VIEW IF NOT EXISTS cost_summary_hourly AS
+        SELECT
+          DATE_TRUNC('hour', "timestamp") as hour,
+          model_id,
+          cost_type,
+          SUM(amount_usd) as total_cost_usd,
+          COUNT(*) as transaction_count
+        FROM cost_records
+        WHERE "timestamp" > NOW() - INTERVAL '7 days'
+        GROUP BY DATE_TRUNC('hour', "timestamp"), model_id, cost_type
+      `);
+      await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_cost_summary_hourly_hour_model_type ON cost_summary_hourly (hour, model_id, cost_type)`);
+      await query(`REFRESH MATERIALIZED VIEW CONCURRENTLY cost_summary_hourly`);
+    } catch (error) {
+      console.warn('cost_summary refresh skipped:', (error as Error).message?.slice(0, 100));
+    }
   }
 
   private async refreshProviderHealth(): Promise<void> {
-    // Materialized view: provider_health
-    await query(`
-      CREATE MATERIALIZED VIEW IF NOT EXISTS provider_health AS
-      SELECT
-        provider,
-        COUNT(*) FILTER (WHERE status = 'completed') as completed,
-        COUNT(*) FILTER (WHERE status = 'failed') as failed,
-        COUNT(*) FILTER (WHERE status = 'timeout') as timeouts,
-        AVG(EXTRACT(EPOCH FROM (completed_at - dispatched_at))) as avg_latency_seconds
-      FROM dispatch_records
-      WHERE dispatched_at > NOW() - INTERVAL '1 hour'
-      GROUP BY provider
-    `);
-
-    await query(`REFRESH MATERIALIZED VIEW CONCURRENTLY provider_health`);
+    try {
+      await query(`
+        CREATE MATERIALIZED VIEW IF NOT EXISTS provider_health AS
+        SELECT
+          model_id as provider,
+          COUNT(*) FILTER (WHERE status = 'completed') as completed,
+          COUNT(*) FILTER (WHERE status = 'failed') as failed,
+          COUNT(*) FILTER (WHERE status = 'timeout') as timeouts,
+          AVG(EXTRACT(EPOCH FROM (completed_at - dispatched_at))) as avg_latency_seconds
+        FROM dispatch_records
+        WHERE dispatched_at > NOW() - INTERVAL '1 hour'
+        GROUP BY model_id
+      `);
+      await query(`REFRESH MATERIALIZED VIEW provider_health`);
+    } catch (error) {
+      console.warn('provider_health refresh skipped:', (error as Error).message?.slice(0, 100));
+    }
   }
 
   private async refreshFaceLockMetrics(): Promise<void> {
-    // Materialized view: facelock_metrics
-    await query(`
-      CREATE MATERIALIZED VIEW IF NOT EXISTS facelock_metrics AS
-      SELECT
-        story_id,
-        model_id,
-        AVG(similarity_score) as avg_similarity,
-        COUNT(*) FILTER (WHERE passed) as passed_count,
-        COUNT(*) FILTER (WHERE NOT passed) as failed_count,
-        MAX(retry_count) as max_retries
-      FROM face_lock_verifications
-      WHERE verified_at > NOW() - INTERVAL '1 hour'
-      GROUP BY story_id, model_id
-    `);
-
-    await query(`REFRESH MATERIALIZED VIEW CONCURRENTLY facelock_metrics`);
+    try {
+      await query(`
+        CREATE MATERIALIZED VIEW IF NOT EXISTS facelock_metrics AS
+        SELECT
+          story_id,
+          model_id,
+          AVG(similarity_score) as avg_similarity,
+          COUNT(*) FILTER (WHERE passed) as passed_count,
+          COUNT(*) FILTER (WHERE NOT passed) as failed_count,
+          MAX(retry_count) as max_retries
+        FROM face_lock_verifications
+        WHERE verification_timestamp > NOW() - INTERVAL '1 hour'
+        GROUP BY story_id, model_id
+      `);
+      await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_facelock_metrics_story_model ON facelock_metrics (story_id, model_id)`);
+      await query(`REFRESH MATERIALIZED VIEW CONCURRENTLY facelock_metrics`);
+    } catch (error) {
+      console.warn('facelock_metrics refresh skipped:', (error as Error).message?.slice(0, 100));
+    }
   }
 
   private async refreshQueueDepth(): Promise<void> {
-    // Materialized view: queue_depth
-    await query(`
-      CREATE MATERIALIZED VIEW IF NOT EXISTS queue_depth AS
-      SELECT
-        'dispatch' as queue_type,
-        COUNT(*) FILTER (WHERE status = 'dispatched') as pending
-      FROM dispatch_records
-      WHERE dispatched_at > NOW() - INTERVAL '1 hour'
-      UNION ALL
-      SELECT
-        'merge' as queue_type,
-        COUNT(*) FILTER (WHERE status = 'pending_merge') as pending
-      FROM stories
-      WHERE updated_at > NOW() - INTERVAL '1 hour'
-    `);
-
-    await query(`REFRESH MATERIALIZED VIEW CONCURRENTLY queue_depth`);
+    try {
+      await query(`
+        CREATE MATERIALIZED VIEW IF NOT EXISTS queue_depth AS
+        SELECT
+          'dispatch' as queue_type,
+          COUNT(*) FILTER (WHERE status = 'dispatched') as pending
+        FROM dispatch_records
+        WHERE dispatched_at > NOW() - INTERVAL '1 hour'
+        UNION ALL
+        SELECT
+          'merge' as queue_type,
+          COUNT(*) FILTER (WHERE status = 'pending_merge') as pending
+        FROM stories
+        WHERE updated_at > NOW() - INTERVAL '1 hour'
+      `);
+      await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_queue_depth_type ON queue_depth (queue_type)`);
+      await query(`REFRESH MATERIALIZED VIEW CONCURRENTLY queue_depth`);
+    } catch (error) {
+      console.warn('queue_depth refresh skipped:', (error as Error).message?.slice(0, 100));
+    }
   }
 
   /**

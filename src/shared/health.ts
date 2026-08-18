@@ -25,8 +25,8 @@ export class HealthCheckRegistry {
 
   constructor(config?: Partial<HealthConfig>) {
     this.config = {
-      livenessThresholdMs: config?.livenessThresholdMs || 5000,
-      readinessThresholdMs: config?.readinessThresholdMs || 3000,
+      livenessThresholdMs: config?.livenessThresholdMs || 15000,
+      readinessThresholdMs: config?.readinessThresholdMs || 10000,
     };
   }
 

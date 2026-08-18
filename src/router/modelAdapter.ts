@@ -5,6 +5,7 @@
  */
 
 import type { CompiledPrompt, GenerationResult, WebhookPayload } from '../shared/types.js';
+import { config } from '../shared/config.js';
 
 export interface ModelAdapter {
   /** Unique model identifier matching registry */
@@ -188,6 +189,12 @@ export function getAdapterFactory(provider: string): AdapterFactory | undefined 
  * Initialize all adapters from model registry
  */
 export async function initializeAdapters(): Promise<void> {
+  // Ensure adapter factory side-effects are registered.
+  // Each adapter file calls registerAdapterFactory() at module load.
+  await import('./adapters/veo3Adapter.js');
+  await import('./adapters/runwayAdapter.js');
+  await import('./adapters/kieAdapter.js');
+
   const { getModelRegistry } = await import('./modelRegistry.js');
   const models = await getModelRegistry();
 
@@ -210,11 +217,14 @@ export async function initializeAdapters(): Promise<void> {
 }
 
 function getAdapterConfig(provider: string): Record<string, any> {
-  // In production, load from secure config/vault
+  // Load API keys from config (populated from secret files via getSecret),
+  // falling back to plain environment variables.
+  const cfg = config;
   const configs: Record<string, Record<string, any>> = {
-    google: { apiKey: process.env.VEO_API_KEY, projectId: process.env.GCP_PROJECT_ID },
-    runway: { apiKey: process.env.RUNWAY_API_KEY },
-    luma: { apiKey: process.env.LUMA_API_KEY },
+    google: { apiKey: cfg.veoApiKey || process.env.VEO_API_KEY, projectId: process.env.GCP_PROJECT_ID },
+    runway: { apiKey: cfg.runwayApiKey || process.env.RUNWAY_API_KEY },
+    luma: { apiKey: cfg.lumaApiKey || process.env.LUMA_API_KEY },
+    kie: { apiKey: cfg.kieApiKey || process.env.KIE_API_KEY, callbackUrl: process.env.KIE_CALLBACK_URL },
   };
   return configs[provider] || {};
 }

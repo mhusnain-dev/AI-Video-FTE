@@ -6,6 +6,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { query, transaction } from '../shared/db.js';
 import { storyStateMachine, emitStoryStateChange } from '../shared/events.js';
+import { publishStoryCommand } from '../shared/redis.js';
 import type { Story, StoryBrief, ShotPlan, StoryStatus, AspectRatio, Resolution, CharacterReference, ShotPlanRevision } from '../shared/types.js';
 import { config } from '../shared/config.js';
 // Metrics
@@ -241,8 +242,10 @@ export async function createStory(request: CreateStoryRequest): Promise<CreateSt
   // Update state machine with trace context
   storyStateMachine.setCurrentState(storyId, 'planning');
 
-  // Emit story state change with trace context
-  await emitStoryStateChange(storyId, 'draft', 'planning', 'decompose_shots', { shotCount: decomposedShots.length }, userId, { traceId });
+  // Fire-and-forget: emit state change to Redis (don't block the response)
+  emitStoryStateChange(storyId, 'draft', 'planning', 'decompose_shots', { shotCount: decomposedShots.length }, userId, { traceId }).catch(err => {
+    console.error('[StoryService] Failed to emit state change (non-blocking):', err.message);
+  });
 
   // Record metrics
   storiesCreatedTotal.inc({ user_id: userId, status: 'planning' });
@@ -286,7 +289,7 @@ export async function getStory(storyId: string): Promise<Story | null> {
     styleReferences: row.style_references,
     negativePrompts: row.negative_prompts,
     modelOverride: row.model_override,
-    transition: row.transition ? JSON.parse(row.transition) : undefined,
+    transition: row.transition ? (typeof row.transition === 'string' ? JSON.parse(row.transition) : row.transition) : undefined,
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -301,8 +304,8 @@ export async function getStory(storyId: string): Promise<Story | null> {
     aspectRatio: storyRow.aspect_ratio,
     targetDurationSeconds: storyRow.target_duration_seconds,
     resolution: storyRow.resolution,
-    globalTransition: storyRow.global_transition ? JSON.parse(storyRow.global_transition) : undefined,
-    audioConfig: storyRow.audio_config ? JSON.parse(storyRow.audio_config) : undefined,
+    globalTransition: storyRow.global_transition ? (typeof storyRow.global_transition === 'string' ? JSON.parse(storyRow.global_transition) : storyRow.global_transition) : undefined,
+    audioConfig: storyRow.audio_config ? (typeof storyRow.audio_config === 'string' ? JSON.parse(storyRow.audio_config) : storyRow.audio_config) : undefined,
     totalEstimatedCost: parseFloat(storyRow.total_estimated_cost),
     totalActualCost: parseFloat(storyRow.total_actual_cost),
     createdAt: storyRow.created_at,
@@ -584,4 +587,36 @@ export async function approveShotPlan(storyId: string, userId: string): Promise<
 
   // Record metrics
   storiesCreatedTotal.inc({ user_id: userId, status: 'approved' });
+
+  // Queue the dispatch command so the CommandHandlerConsumer generates the shots.
+  // Approval must be durable even if the stream publish fails (operator can retry).
+  try {
+    await publishStoryCommand('approve', { storyId, userId });
+    console.log(`Published 'approve' command for story ${storyId}`);
+  } catch (error) {
+    console.error(`Failed to publish 'approve' command for story ${storyId}:`, error);
+  }
+}
+
+/**
+ * Approve merge from pending_merge state (human approval gate)
+ */
+export async function approveMerge(storyId: string): Promise<void> {
+  const story = await getStory(storyId);
+  if (!story) {
+    throw new Error('Story not found');
+  }
+
+  if (story.status !== 'pending_merge') {
+    throw new Error(`Cannot approve merge in status: ${story.status}`);
+  }
+
+  await storyStateMachine.transition(storyId, 'user_approve_merge', {}, 'system');
+
+  await query(
+    `UPDATE stories SET status = 'merging', updated_at = NOW() WHERE id = $1`,
+    [storyId]
+  );
+
+  console.log(`Story ${storyId} merge approved — transitioning to merging`);
 }

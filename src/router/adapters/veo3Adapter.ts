@@ -7,11 +7,18 @@
 import axios from 'axios';
 import crypto from 'crypto';
 import { BaseModelAdapter, registerAdapterFactory } from '../modelAdapter.js';
-import type { CompiledPrompt, GenerationResult, WebhookPayload, ModelCapability, ModelCapabilities } from '../../shared/types.js';
+import type { CompiledPrompt, GenerationResult, WebhookPayload, ModelCapability } from '../../shared/types.js';
 
 // Veo 3 API endpoint configuration
 const VEO_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const VEO_WEBHOOK_SECRET = process.env.VEO_WEBHOOK_SECRET || 'veo-webhook-secret';
+
+// Map internal model IDs to live Gemini API model names.
+// (veo-3.0-generate-001 was retired 2026-06-30; 3.1 is current GA.)
+const VEO_API_MODEL_MAP: Record<string, string> = {
+  'veo3-high': 'veo-3.1-generate-001',
+  'veo3-low': 'veo-3.1-fast-generate-001',
+};
 
 interface VeoConfig {
   apiKey: string;
@@ -27,19 +34,39 @@ interface VeoDispatchResponse {
   };
 }
 
+interface VeoVideo {
+  video?: { uri?: string };
+  uri?: string;
+  gcsUri?: string;
+  mimeType?: string;
+}
+
+interface VeoGenerateVideoResponse {
+  videos?: VeoVideo[];
+  generatedVideos?: VeoVideo[];
+  generateVideoResponse?: { generatedSamples?: VeoVideo[] };
+}
+
 interface VeoOperation {
   name: string;
   done: boolean;
-  response?: {
-    videos: Array<{
-      uri: string;
-      mimeType: string;
-    }>;
-  };
+  response?: VeoGenerateVideoResponse;
   error?: {
     code: number;
     message: string;
   };
+}
+
+interface VeoGenerateRequest {
+  prompt: string;
+  negativePrompt?: string;
+  generationConfig: {
+    aspectRatio: string;
+    durationSeconds: number;
+    resolution: string;
+  };
+  image?: { bytesBase64Encoded: string; mimeType: string };
+  styleReferences?: unknown[];
 }
 
 export class Veo3Adapter extends BaseModelAdapter {
@@ -55,7 +82,7 @@ export class Veo3Adapter extends BaseModelAdapter {
     this.httpClient = axios.create({
       baseURL: VEO_API_BASE,
       headers: {
-        'Authorization': `Bearer ${config.apiKey}`,
+        'x-goog-api-key': config.apiKey,
         'Content-Type': 'application/json',
       },
       timeout: 300000, // 5 min timeout for API calls
@@ -64,9 +91,10 @@ export class Veo3Adapter extends BaseModelAdapter {
 
   protected async makeDispatchRequest(prompt: CompiledPrompt): Promise<{ providerRequestId: string; estimatedCompletionMs?: number }> {
     const requestBody = this.buildVeoRequest(prompt);
+    const apiModel = VEO_API_MODEL_MAP[this.modelId] || this.modelId;
 
     const response = await this.httpClient.post<VeoDispatchResponse>(
-      `/models/${this.modelId}:generateVideo`,
+      `/models/${apiModel}:generateVideo`,
       requestBody
     );
 
@@ -85,17 +113,26 @@ export class Veo3Adapter extends BaseModelAdapter {
         return { status: 'failed', error: response.data.error.message };
       }
 
-      if (response.data.response?.videos?.[0]) {
-        const video = response.data.response.videos[0];
+      // Gemini returns the video under response.videos[0].video.uri (or variants).
+      const resp = response.data.response ?? {};
+      const videosArr = resp.videos ?? resp.generatedVideos ?? resp.generateVideoResponse?.generatedSamples;
+      const video = videosArr?.[0];
+      let videoUrl = video?.video?.uri || video?.uri || video?.gcsUri;
+
+      if (videoUrl) {
+        // Gemini file URIs require the API key for authenticated download.
+        if (videoUrl.includes('generativelanguage.googleapis.com')) {
+          videoUrl = `${videoUrl}${videoUrl.includes('?') ? '&' : '?'}key=${this.config.apiKey}`;
+        }
         return {
           status: 'completed',
           result: {
             shotId: '', // Filled by caller
-            videoUrl: video.uri,
+            videoUrl,
             durationSeconds: this.getMaxDurationSeconds(),
             actualCost: this.getCostPerSecond() * this.getMaxDurationSeconds(),
             modelId: this.modelId,
-            providerMetadata: { uri: video.uri, mimeType: video.mimeType },
+            providerMetadata: { uri: videoUrl, mimeType: video?.mimeType },
             nativeAudioUrl: undefined,
           },
         };
@@ -182,21 +219,24 @@ export class Veo3Adapter extends BaseModelAdapter {
     return ['16:9', '9:16', '1:1', '4:5'];
   }
 
-  private buildVeoRequest(prompt: CompiledPrompt): any {
-    const request: any = {
+  private buildVeoRequest(prompt: CompiledPrompt): VeoGenerateRequest {
+    const request: VeoGenerateRequest = {
       prompt: prompt.prompt,
       negativePrompt: prompt.negativePrompt,
-      aspectRatio: prompt.modelParams.aspectRatio || '16:9',
-      resolution: prompt.modelParams.resolution || '1080p',
-      durationSeconds: prompt.modelParams.durationSeconds || 8,
+      generationConfig: {
+        aspectRatio: (prompt.modelParams.aspectRatio as string) || '16:9',
+        durationSeconds: (prompt.modelParams.durationSeconds as number) || 8,
+        resolution: (prompt.modelParams.resolution as string) || '1080p',
+      },
     };
 
-    // Add character conditioning for reference images
+    // Single reference image -> image-to-video (Gemini expects bytesBase64Encoded)
     if (prompt.characterConditioning.length > 0) {
-      request.imageConditioning = prompt.characterConditioning.map((c: { referenceImageBase64: string; modelSpecificParams: any }) => ({
-        image: c.referenceImageBase64,
-        modelSpecificParams: c.modelSpecificParams,
-      }));
+      const first = prompt.characterConditioning[0];
+      const base64 = String(first.referenceImageBase64 || '').replace(/^data:image\/[a-z0-9.+-]+;base64,/, '');
+      if (base64) {
+        request.image = { bytesBase64Encoded: base64, mimeType: 'image/jpeg' };
+      }
     }
 
     // Add style references

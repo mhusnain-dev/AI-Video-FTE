@@ -80,8 +80,12 @@ export async function dispatchShot(
   // Extract reference images from character conditioning
   const referenceImages = compiledPrompt.characterConditioning.map(c => c.referenceImageBase64);
 
-  // Get userId from story (would need to fetch story, for now use placeholder)
-  const userId = 'system';
+  // Get userId from story
+  const storyUserResult = await query(
+    `SELECT user_id FROM stories WHERE id = $1`,
+    [shot.storyId]
+  );
+  const userId = storyUserResult.rows[0]?.user_id || '550e8400-e29b-41d4-a716-446655440000';
 
   // Build admission context
   const admissionContext: AdmissionContext = {
@@ -153,7 +157,7 @@ export async function dispatchShot(
     const storyResolution = storyResult.rows[0]?.resolution || '1080p';
 
     const { selectModelForShot } = await import('../router/autoRouter.js');
-    const routingDecision = await selectModelForShot('system', {
+    const routingDecision = await selectModelForShot(userId, {
       resolution: storyResolution as any,
       aspectRatio: storyAspectRatio as any,
       durationSeconds: shot.durationSeconds,

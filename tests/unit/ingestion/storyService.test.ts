@@ -29,10 +29,12 @@ jest.mock('../../../src/shared/config', () => ({
 
 const mockQuery = require('../../../src/shared/db').query;
 const mockTransaction = require('../../../src/shared/db').transaction;
+const mockEmitStoryStateChange = require('../../../src/shared/events').emitStoryStateChange;
 
 describe('Story Ingestion Service', () => {
   beforeEach(() => {
     jest.resetAllMocks();
+    mockEmitStoryStateChange.mockResolvedValue(undefined);
   });
 
   describe('decomposeStoryToShots', () => {

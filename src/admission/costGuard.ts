@@ -6,7 +6,7 @@
 
 import { query } from '../shared/db.js';
 import { config } from '../shared/config.js';
-import type { AdmissionContext, CostGuardConfig, CostGuardOverrunOptions } from '../shared/types.js';
+import type { AdmissionContext, CostGuardOverrunOptions } from '../shared/types.js';
 
 export interface CostGuardResult {
   blocked: boolean;
@@ -161,7 +161,7 @@ async function checkCostDrift(
   modelId: string,
   userId: string,
   actualCost: number,
-  metadata: Record<string, any>
+  _metadata: Record<string, any>
 ): Promise<void> {
   const costConfig = config.admission.costGuard;
 

@@ -313,7 +313,7 @@ export async function handleHealthLive(req: Request, res: Response): Promise<voi
     const checks = await registry.runCritical();
     const status = computeOverallHealth(checks, ['database', 'redis', 'vault']);
 
-    const httpStatus = status === 'healthy' ? 200 : 503;
+    const httpStatus = status === 'unhealthy' ? 503 : 200;
 
     res.status(httpStatus).json({
       status,

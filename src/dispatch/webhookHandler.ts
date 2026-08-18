@@ -8,7 +8,7 @@
 import { getAdapter } from '../router/modelAdapter.js';
 import { query } from '../shared/db.js';
 import { config } from '../shared/config.js';
-import { shotStateMachine, emitShotStateChange } from '../shared/events.js';
+import { shotStateMachine, emitShotStateChange, storyStateMachine } from '../shared/events.js';
 import { mapRowToDispatchRecord } from './shotDispatcher.js';
 import { cancelDispatchTimeout } from './timeoutManager.js';
 import {
@@ -134,7 +134,12 @@ export async function handleWebhook(
   webhookReceivedTotal.inc({ provider, status: shotStatus, duplicate: 'false' });
   webhookProcessingLatencySeconds.observe({ provider }, (Date.now() - webhookStart) / 1000);
 
-  // 11. Face-Lock Post-Generation Verification (FR-024)
+  // 11. Auto-detect: if all shots for this story are completed, transition to pending_merge
+  if (shotStatus === 'completed') {
+    await checkAllShotsAndTriggerPendingMerge(dispatchRecord.shotId);
+  }
+
+  // 12. Face-Lock Post-Generation Verification (FR-024)
   // If completed, verify character identity against registered references
   if (payload.status === 'completed' && generationResult.videoUrl) {
     await performFaceLockVerification(
@@ -423,4 +428,70 @@ export async function getWebhookStats(timeWindowMs: number = 3600000): Promise<{
     duplicates: 0, // Would need additional tracking
     unrecognized: parseInt(unrecognizedResult.rows[0].count) || 0,
   };
+}
+
+/**
+ * Check if all shots for a story are completed, and if so, transition to pending_merge.
+ * This triggers the human-approval merge flow.
+ */
+async function checkAllShotsAndTriggerPendingMerge(shotId: string): Promise<void> {
+  try {
+    // Get the story ID from the shot
+    const shotResult = await query(
+      `SELECT story_id FROM shots WHERE id = $1`,
+      [shotId]
+    );
+
+    if (shotResult.rows.length === 0) return;
+    const storyId = shotResult.rows[0].story_id;
+
+    // Count total vs completed shots
+    const countsResult = await query(
+      `SELECT
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE status = 'completed') as completed,
+        COUNT(*) FILTER (WHERE status = 'failed') as failed
+      FROM shots WHERE story_id = $1`,
+      [storyId]
+    );
+
+    const { total, completed, failed } = countsResult.rows[0] || { total: '0', completed: '0', failed: '0' };
+    const totalNum = parseInt(total);
+    const completedNum = parseInt(completed);
+    const failedNum = parseInt(failed);
+
+    // All shots done if none are in-progress states
+    const allDone = completedNum + failedNum >= totalNum && totalNum > 0;
+
+    if (!allDone) return;
+
+    // Get current story status
+    const storyResult = await query(
+      `SELECT status FROM stories WHERE id = $1`,
+      [storyId]
+    );
+
+    if (storyResult.rows.length === 0) return;
+    const storyStatus = storyResult.rows[0].status;
+
+    // Only transition from generating/in_progress states
+    if (!['generating', 'in_progress'].includes(storyStatus)) return;
+
+    // Check if there are any successful completions (at least one shot succeeded)
+    if (completedNum === 0) {
+      console.log(`[Webhook] All shots failed for story ${storyId} — not triggering merge`);
+      return;
+    }
+
+    console.log(`[Webhook] All ${completedNum}/${totalNum} shots completed for story ${storyId} — transitioning to pending_merge`);
+
+    // Transition story to pending_merge (waits for human approval)
+    await storyStateMachine.transition(storyId, 'all_shots_completed', {
+      completedShots: completedNum,
+      totalShots: totalNum,
+      failedShots: failedNum,
+    }, 'system');
+  } catch (error) {
+    console.error(`[Webhook] Failed to check all shots for story:`, error);
+  }
 }
