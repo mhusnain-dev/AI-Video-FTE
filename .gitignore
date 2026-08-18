@@ -43,4 +43,5 @@ temp/
 *.db
 
 # Vault
-.vault-token
+.vault-tokendata/
+frontend/test-results/
