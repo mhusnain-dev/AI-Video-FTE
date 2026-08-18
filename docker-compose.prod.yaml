@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: pgvector/pgvector:0.8.6-pg16
@@ -103,7 +101,8 @@ services:
       ELEVENLABS_API_KEY_FILE: /run/secrets/elevenlabs_key
       VEO_API_KEY_FILE: /run/secrets/veo_key
       RUNWAY_API_KEY_FILE: /run/secrets/runway_key
-      LUMA_API_KEY_FILE: /run/secrets/luma_key
+      KIE_API_KEY_FILE: /run/secrets/kie_key
+      LLM_API_KEY_FILE: /run/secrets/llm_api_key
       ALERTMANAGER_WEBHOOK_URL: ${ALERTMANAGER_WEBHOOK_URL}
       ARCHIVE_BACKEND: ${ARCHIVE_BACKEND:-s3}
       ARCHIVE_BUCKET: ${ARCHIVE_BUCKET}
@@ -124,7 +123,14 @@ services:
       - elevenlabs_key
       - veo_key
       - runway_key
-      - luma_key
+      - kie_key
+      - llm_api_key
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     deploy:
       replicas: 3
       resources:
@@ -287,7 +293,9 @@ secrets:
     file: ./secrets/veo_key.txt
   runway_key:
     file: ./secrets/runway_key.txt
-  luma_key:
-    file: ./secrets/luma_key.txt
+  kie_key:
+    file: ./secrets/kie_key.txt
+  llm_api_key:
+    file: ./secrets/llm_api_key.txt
   grafana_password:
     file: ./secrets/grafana_password.txt

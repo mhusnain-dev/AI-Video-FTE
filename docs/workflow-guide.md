@@ -63,12 +63,12 @@ and those calls are authenticated with API keys. Two categories of key exist:
 |----------|---------|----------------------|--------------|
 | **Veo 3** | Ultra-realistic text-to-video generation | `VEO_API_KEY` | `veoApiKey` |
 | **Runway Gen-3** | Alternative / fallback video model | `RUNWAY_API_KEY` | `runwayApiKey` |
-| Luma Ray 2, Pika, Kling | Additional models (pluggable adapters) | — | model registry |
+| KIE, Pika, Kling | Additional models (pluggable adapters) | `KIE_API_KEY` | model registry |
 
 Grounding: `src/shared/config.ts:getEnvOverrides` maps `VEO_API_KEY → veoApiKey` and
 `RUNWAY_API_KEY → runwayApiKey`. The configured models and their per-second costs live in
 `config/development.yaml` (`veo3-low` $0, `veo3-high` $0.05/s, `runway-gen3` $0.08/s,
-`luma-ray2` $0.03/s).
+`kling` $0.03/s).
 
 Without a valid video key, adapters cannot dispatch shots — there is no local fallback that produces
 ultra-realistic footage. **A video-model key is required for any real render.**

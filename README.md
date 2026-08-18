@@ -9,6 +9,23 @@
 
 ---
 
+## Project Status
+
+| Milestone | Status | Date |
+|-----------|--------|------|
+| Phase 0–8 (Build) | Complete | 2026-08-17 |
+| Backend tests (248) | Passing | 2026-08-17 |
+| Frontend tests (23) | Passing | 2026-08-17 |
+| OpenAPI 3.1 spec | Complete | 2026-08-17 |
+| Phase 9 (DoD Gap Resolution) | 12/13 items done (1 blocked on API keys) | 2026-08-17 |
+| Clarification interview | Complete (CL-026–CL-040) | 2026-08-17 |
+
+**Current state**: All core backend pipeline services (Ingestion, Router, Admission, Dispatch, Merger, Observability) are implemented and tested. Frontend scaffolding complete. Phase 9 task table (62 items) awaiting Principal approval.
+
+**Blockers**: Real API keys needed for Veo 3, Runway, ElevenLabs to enable full end-to-end smoke testing.
+
+---
+
 ## 🎯 What This FTE Does
 
 The **AI Video Production Specialist** is an autonomous Digital FTE (Full-Time Equivalent) that orchestrates the entire video production pipeline:
@@ -91,7 +108,7 @@ The **AI Video Production Specialist** is an autonomous Digital FTE (Full-Time E
 | Category | Features |
 |----------|----------|
 | **🛡 Sacred Guard** | 5 enforcement points (creation, registry, moderation, pre-dispatch, post-audit), dual-authorization denylist, visual + semantic matching |
-| **👤 Face-Lock** | Multi-character per shot, per-model conditioning (Veo 3, Runway, Pika, Kling), independent verification, cross-shot drift detection, auto-regeneration |
+| **👤 Face-Lock** | Multi-character per shot, per-model conditioning (Veo 3, Runway, KIE, Kling), independent verification, cross-shot drift detection, auto-regeneration |
 | **🤖 Model Routing** | AUTO (priority + eligibility + fallback) + MANUAL pin, 5 built-in adapters, extensible interface |
 | **🎬 Assembly** | FFmpeg 20+ transitions, ElevenLabs TTS + music, SRT/VTT/ASS subtitles, 720p/1080p/4K |
 | **📊 Observability** | Prometheus + Grafana + Alertmanager, distributed tracing, structured audit, immutable storage |
@@ -164,6 +181,7 @@ C4Context
 git clone https://github.com/mhusnain-dev/MY_FTE.git
 cd MY_FTE
 npm ci
+cd frontend && npm ci && cd ..
 
 # 2. Start infrastructure (Docker Compose)
 docker compose -f docker/infra.yaml up -d
@@ -180,28 +198,39 @@ vault kv put secret/fte/api-keys \
   VEO_API_KEY="your-veo3-key" \
   RUNWAY_API_KEY="your-runway-key" \
   ELEVENLABS_API_KEY="your-elevenlabs-key" \
-  LUMA_API_KEY="your-luma-key" \
   PIKA_API_KEY="your-pika-key" \
-  KLING_API_KEY="your-kling-key"
+  KLING_API_KEY="your-kling-key" \
+  LLM_API_KEY="your-gemini-key"
 
 # 5. Run migrations
 npm run migrate
 
-# 6. Start development server
-npm run dev
-# API: http://localhost:3000
-# Metrics: http://localhost:9090/metrics
+# 6. Start development servers
+npm run dev          # Backend: http://localhost:3000
+cd frontend && npm run dev  # Frontend: http://localhost:5173
+
+# Health & Metrics
 # Health: http://localhost:3000/health
+# Metrics: http://localhost:9090/metrics
 ```
 
 ### Run Tests
 
 ```bash
-# All tests
+# Backend tests (248 tests)
 npm test
 
-# With coverage
+# Backend tests with coverage
 npm test -- --coverage
+
+# Frontend tests (23 tests)
+cd frontend && npm test
+
+# Frontend tests in watch mode
+cd frontend && npm run test:watch
+
+# E2E tests (Playwright)
+cd frontend && npx playwright test
 
 # Type check only
 npx tsc --noEmit
@@ -217,7 +246,7 @@ npx eslint src/**/*.ts tests/**/*.ts
 ### Primary Config: `config/development.yaml`
 
 ```yaml
-# All settings with CL-001 through CL-023 defaults
+# All settings with CL-001 through CL-040 defaults
 postgres:
   host: "localhost"
   port: 5432
@@ -239,7 +268,7 @@ vault:
   transitKeyName: "biometric-encryption-dev"
   rotationIntervalDays: 90
 
-# Model registry (CL-006, CL-007)
+# Model registry (CL-006, CL-007, CL-026, CL-036)
 modelRegistry:
   models:
     - id: "veo3-low"
@@ -250,10 +279,33 @@ modelRegistry:
       costPerSecondUsd: 0.00
       capabilities: ["text_to_video", "image_to_video", "reference_conditioning"]
       defaultTimeoutSeconds: 120
-    # ... veo3-high, runway-gen3, luma-ray2, pika, kling
+    - id: "veo3-high"
+      name: "Veo 3 High Quality"
+      provider: "google"
+      maxResolution: "4K"
+      maxDurationSeconds: 10
+      costPerSecondUsd: 0.00
+      capabilities: ["text_to_video", "image_to_video", "reference_conditioning"]
+      defaultTimeoutSeconds: 180
+    - id: "runway-gen3"
+      name: "Runway Gen-3"
+      provider: "runway"
+      maxResolution: "1080p"
+      maxDurationSeconds: 10
+      costPerSecondUsd: 0.05
+      capabilities: ["text_to_video", "image_to_video"]
+      defaultTimeoutSeconds: 120
+    - id: "kling"
+      name: "Kling"
+      provider: "kling"
+      maxResolution: "1080p"
+      maxDurationSeconds: 10
+      costPerSecondUsd: 0.03
+      capabilities: ["text_to_video", "image_to_video"]
+      defaultTimeoutSeconds: 120
 
 router:
-  systemDefaultPriority: ["veo3-low", "veo3-high", "runway-gen3", "luma-ray2"]
+  systemDefaultPriority: ["veo3-low", "veo3-high", "runway-gen3", "kling"]
   eligibilityCheckEnabled: true
 
 # Sacred Guard (CL-001, CL-009)
@@ -264,16 +316,32 @@ admission:
       veo3-low: 0.78
       veo3-high: 0.77
       runway-gen3: 0.79
-      luma-ray2: 0.80
+      kling: 0.76
 
-# Face-Lock (CL-002, CL-003, CL-021)
+# Face-Lock (CL-002, CL-003, CL-021, CL-029, CL-037)
 faceLock:
   defaultPerModelThresholds:
     veo3-low: 0.82
     veo3-high: 0.80
     runway-gen3: 0.85
-    luma-ray2: 0.78
+    kling: 0.78
   maxRetries: 2
+  verification:
+    enabled: true
+    framework: "arcface"
+    modelPath: "./models/arcface_r100.onnx"
+
+# Auth (CL-028, CL-038)
+auth:
+  jwtSecret: "auto-generated"
+  jwtExpiryHours: 24
+  bcryptRounds: 12
+
+# LLM (CL-031, CL-036)
+llm:
+  provider: "gemini"
+  model: "gemini-3.5-flash"
+  apiKeySource: "vault"
 
 # Observability (Task 47)
 observability:
@@ -313,11 +381,14 @@ ARCHIVE_LOCAL_PATH=./data/archive
 
 ### Base URL: `http://localhost:3000`
 
+**Full OpenAPI 3.1 spec**: [`openapi.yaml`](./openapi.yaml)
+
 ### Stories
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `POST` | `/stories` | Create story from brief (FR-001, FR-002) |
+| `GET` | `/stories` | List stories (paginated) |
 | `GET` | `/stories/:storyId` | Get story with shot plan |
 | `POST` | `/stories/:storyId/present` | Present shot plan for approval (FR-003) |
 | `POST` | `/stories/:storyId/approve` | Approve shot plan → begin generation |
@@ -333,11 +404,37 @@ ARCHIVE_LOCAL_PATH=./data/archive
 | `GET` | `/stories/:storyId/characters` | List character references |
 | `GET` | `/stories/:storyId/characters/:name` | Get character by name |
 
+### Admission Pipeline
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/admission/preview` | Preview admission result without persisting |
+| `GET` | `/admission/stats` | Admission statistics by gate |
+| `POST` | `/admission/test` | Test admission pipeline |
+
+### Sacred Guard
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/sacred/check` | Check entity against Sacred Guard |
+| `GET` | `/sacred/stats` | Sacred Guard statistics |
+| `POST` | `/sacred/entities` | Register new sacred entity |
+| `GET` | `/sacred/entities` | List sacred entities |
+
+### Router & Models
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/models` | List available models |
+| `POST` | `/router/select` | Select model for a shot |
+| `GET` | `/router/stats` | Routing statistics |
+| `POST` | `/router/eligibility` | Check model eligibility |
+
 ### Webhooks (Model Providers)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/webhook/:provider` | Receive completion (google, runway, luma, pika, kling) |
+| `POST` | `/webhook/:provider` | Receive completion (google, runway, kling, pika) |
 | `GET` | `/webhook/stats` | Webhook processing statistics |
 | `POST` | `/webhook/test/:provider` | Test endpoint (skips HMAC) |
 
@@ -352,6 +449,23 @@ ARCHIVE_LOCAL_PATH=./data/archive
 | `GET` | `/health/:service` | Individual service health |
 | `GET` | `/metrics` | Prometheus text format (port 9090) |
 | `GET` | `/metrics/json` | Prometheus JSON format |
+
+### Users & Projects
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/users/:userId/settings` | Get user settings |
+| `PUT` | `/users/:userId/settings` | Update user settings |
+| `GET` | `/users/:userId/preferences` | Get learned preferences |
+| `GET` | `/projects` | List projects |
+| `POST` | `/projects` | Create project |
+
+### Audit & Events
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/audit/events` | Query audit events |
+| `GET` | `/events/stream` | SSE event stream |
 
 ---
 
@@ -536,14 +650,26 @@ export class MyModelAdapter extends BaseModelAdapter {
 ### Running Specific Test Suites
 
 ```bash
-# Face-Lock tests
+# Backend: Face-Lock tests
 npm test -- tests/generation/faceLockVerification.test.ts
 
-# Merger tests
+# Backend: Merger tests
 npm test -- tests/assembly/shotMerger.test.ts
 
-# Admission tests
+# Backend: Admission tests
 npm test -- tests/admission/
+
+# Backend: Router tests
+npm test -- tests/router/
+
+# Frontend: Unit tests
+cd frontend && npm test
+
+# Frontend: Specific component
+cd frontend && npx vitest run src/components/Modal.test.tsx
+
+# E2E: Smoke tests
+cd frontend && npx playwright test e2e/smoke.spec.ts
 ```
 
 ---
@@ -556,19 +682,36 @@ npm test -- tests/admission/
 | **Constitution** | `CLAUDE.md` | ✅ Approved |
 | **Research** | `research/findings-ai-video-fte.md` | ✅ Approved |
 | **Specification** | `specs/ai-video-fte/spec.md` | ✅ Approved |
-| **Clarifications (23)** | `specs/ai-video-fte/spec.md` (end) | ✅ All resolved |
+| **Clarifications (15)** | `specs/ai-video-fte/spec.md` (end) | ✅ All resolved |
 | **Implementation Plan** | `plans/ai-video-fte/plan.md` | ✅ Complete |
 | **Progress Dashboard** | `progress.md` | ✅ Current |
+| **OpenAPI Spec** | `openapi.yaml` | ✅ OpenAPI 3.1 |
+| **CHANGELOG** | `CHANGELOG.md` | ✅ Current |
+| **Runbooks** | `docs/runbooks/` (16 files) | ✅ All alerts covered |
 
-**All 7 Phases Complete:**
+**All 8 Build Phases Complete:**
 - Phase 0: Foundation & Infrastructure (Tasks 6–11)
 - Phase 1: Story Ingestion & Planning (Tasks 12–16)
 - Phase 2: Model Selection & Routing (Tasks 17–20)
 - Phase 3: Admission Control Pipeline (Tasks 21–27)
 - Phase 4: Shot Generation, Dispatch & Recovery (Tasks 28–34)
-- Phase 5: Face-Lock / Identity Persistence (Tasks 35–40) ⭐ Critical
+- Phase 5: Face-Lock / Identity Persistence (Tasks 35–40)
 - Phase 6: Video Assembly & Delivery (Tasks 41–46)
 - Phase 7: Observability, Audit & Non-Functional (Tasks 47–53)
+
+**Phase 9 DoD Gap Resolution** (62 tasks, ~144h) — 12/13 Block 4 items implemented, task table awaiting Principal approval.
+
+**Key Decisions (CL-026–CL-040):**
+- CL-026: Luma removed from scope
+- CL-027: ElevenLabs-only TTS (Piper deferred)
+- CL-028: JWT + local passwords auth
+- CL-029: Full real Face-Lock verification (FFmpeg + ArcFace)
+- CL-030: PII strip + model constraints sanitizer
+- CL-031: LLM enhancement + template fallback
+- CL-036: Gemini 3.5 Flash (single LLM provider)
+- CL-037: Face-Lock fail → auto-regen 2x → fail + alert
+- CL-038: No JWT refresh — 24h expiry
+- CL-040: Dedicated prompt review page
 
 ---
 
@@ -576,11 +719,40 @@ npm test -- tests/admission/
 
 | Package | Statements | Branches | Functions | Lines |
 |---------|------------|----------|-----------|-------|
-| **Global** | ~69% | ~65% | ~70% | ~69% |
+| **Global (Backend)** | ~69% | ~65% | ~70% | ~69% |
 | **Merger (Tasks 41–46)** | **96.9%** | **84.6%** | **95.8%** | **97.2%** |
 | **Face-Lock (Tasks 35–40)** | 85%+ | 80%+ | 90%+ | 85%+ |
 
-Run `npm test -- --coverage` for full report.
+### Test Suites
+
+| Suite | Command | Count |
+|-------|---------|-------|
+| **Backend** | `npm test` | 248 tests |
+| **Frontend Unit** | `cd frontend && npm test` | 23 tests |
+| **E2E (Playwright)** | `cd frontend && npx playwright test` | 3 smoke tests |
+| **Contract** | `npm test -- tests/contract/` | 6 tests |
+
+### Run Tests
+
+```bash
+# All backend tests with coverage
+npm test -- --coverage
+
+# Frontend unit tests
+cd frontend && npm test
+
+# E2E smoke tests
+cd frontend && npx playwright test
+
+# Contract tests
+npm test -- tests/contract/api-contract.test.ts
+
+# Type check only
+npx tsc --noEmit
+
+# Lint
+npx eslint src/**/*.ts tests/**/*.ts
+```
 
 ---
 
@@ -591,6 +763,10 @@ Run `npm test -- --coverage` for full report.
 - **Webhooks**: HMAC-SHA256 verification, idempotent processing
 - **Audit**: Immutable triggers on critical tables, 7-year retention
 - **Transport**: TLS in production, signed URLs with 7-day TTL
+- **Auth**: JWT tokens (24h expiry, no refresh) + bcrypt password hashing
+- **Secrets**: Auto-generated strong secrets for Postgres, Redis, Vault tokens
+- **Sacred Guard**: 5 enforcement points, dual-authorization denylist changes
+- **Prompt Sanitization**: PII strip + model constraints + injection patterns (deterministic, rule-based)
 
 ---
 

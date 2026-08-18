@@ -5,17 +5,28 @@
 
 set -euo pipefail
 
+FORCE=false
+if [[ "${1:-}" == "--force" ]]; then
+    FORCE=true
+fi
+
 SECRETS_DIR="./secrets"
 mkdir -p "$SECRETS_DIR"
 
-echo "🔐 Generating secrets for AI Video FTE production deployment..."
+echo "Generating secrets for AI Video FTE production deployment..."
 echo "   Output directory: $SECRETS_DIR"
 echo ""
 
-# Function to generate random string
+# Function to generate random alphanumeric string
 gen_secret() {
     local length=${1:-32}
     openssl rand -base64 "$length" | tr -d "=+/" | cut -c1-"$length"
+}
+
+# Function to generate random hex string
+gen_hex() {
+    local length=${1:-32}
+    openssl rand -hex "$length" | cut -c1-"$length"
 }
 
 # Function to generate password
@@ -30,84 +41,111 @@ secure_secret() {
     chmod 600 "$file"
 }
 
+# Function to mask a secret value (show first 4 chars)
+mask_secret() {
+    local file="$1"
+    if [[ -f "$file" ]]; then
+        local val
+        val=$(cat "$file")
+        local len=${#val}
+        if [[ $len -le 4 ]]; then
+            echo "****"
+        else
+            echo "${val:0:4}$(printf '%*s' $((len-4)) '' | tr ' ' '*')"
+        fi
+    else
+        echo "(not found)"
+    fi
+}
+
 # PostgreSQL password
-if [[ ! -f "$SECRETS_DIR/postgres_password.txt" ]]; then
+if [[ ! -f "$SECRETS_DIR/postgres_password.txt" ]] || [[ "$FORCE" == "true" ]]; then
     gen_password 32 > "$SECRETS_DIR/postgres_password.txt"
     secure_secret "$SECRETS_DIR/postgres_password.txt"
-    echo "✅ Generated postgres_password.txt"
+    echo "Generated postgres_password.txt: $(mask_secret "$SECRETS_DIR/postgres_password.txt")"
 else
     secure_secret "$SECRETS_DIR/postgres_password.txt"
-    echo "⏭️  postgres_password.txt already exists"
+    echo "postgres_password.txt already exists: $(mask_secret "$SECRETS_DIR/postgres_password.txt")"
 fi
 
 # Redis password
-if [[ ! -f "$SECRETS_DIR/redis_password.txt" ]]; then
+if [[ ! -f "$SECRETS_DIR/redis_password.txt" ]] || [[ "$FORCE" == "true" ]]; then
     gen_password 32 > "$SECRETS_DIR/redis_password.txt"
     secure_secret "$SECRETS_DIR/redis_password.txt"
-    echo "✅ Generated redis_password.txt"
+    echo "Generated redis_password.txt: $(mask_secret "$SECRETS_DIR/redis_password.txt")"
 else
     secure_secret "$SECRETS_DIR/redis_password.txt"
-    echo "⏭️  redis_password.txt already exists"
+    echo "redis_password.txt already exists: $(mask_secret "$SECRETS_DIR/redis_password.txt")"
 fi
 
 # Vault root token (for production, use proper Vault init/unseal)
-if [[ ! -f "$SECRETS_DIR/vault_token.txt" ]]; then
-    gen_secret 64 > "$SECRETS_DIR/vault_token.txt"
+if [[ ! -f "$SECRETS_DIR/vault_token.txt" ]] || [[ "$FORCE" == "true" ]]; then
+    gen_hex 32 > "$SECRETS_DIR/vault_token.txt"
     secure_secret "$SECRETS_DIR/vault_token.txt"
-    echo "✅ Generated vault_token.txt"
+    echo "Generated vault_token.txt: $(mask_secret "$SECRETS_DIR/vault_token.txt")"
 else
     secure_secret "$SECRETS_DIR/vault_token.txt"
-    echo "⏭️  vault_token.txt already exists"
+    echo "vault_token.txt already exists: $(mask_secret "$SECRETS_DIR/vault_token.txt")"
 fi
 
 # ElevenLabs API key (user must provide)
-if [[ ! -f "$SECRETS_DIR/elevenlabs_key.txt" ]]; then
+if [[ ! -f "$SECRETS_DIR/elevenlabs_key.txt" ]] || [[ "$FORCE" == "true" ]]; then
     echo "YOUR_ELEVENLABS_API_KEY_HERE" > "$SECRETS_DIR/elevenlabs_key.txt"
     secure_secret "$SECRETS_DIR/elevenlabs_key.txt"
-    echo "⚠️  Created elevenlabs_key.txt - REPLACE with actual API key!"
+    echo "Created elevenlabs_key.txt - REPLACE with actual API key!"
 else
     secure_secret "$SECRETS_DIR/elevenlabs_key.txt"
-    echo "⏭️  elevenlabs_key.txt already exists"
+    echo "elevenlabs_key.txt already exists"
 fi
 
 # Veo (Google) API key (user must provide)
-if [[ ! -f "$SECRETS_DIR/veo_key.txt" ]]; then
+if [[ ! -f "$SECRETS_DIR/veo_key.txt" ]] || [[ "$FORCE" == "true" ]]; then
     echo "YOUR_VEO_API_KEY_HERE" > "$SECRETS_DIR/veo_key.txt"
     secure_secret "$SECRETS_DIR/veo_key.txt"
-    echo "⚠️  Created veo_key.txt - REPLACE with actual API key!"
+    echo "Created veo_key.txt - REPLACE with actual API key!"
 else
     secure_secret "$SECRETS_DIR/veo_key.txt"
-    echo "⏭️  veo_key.txt already exists"
+    echo "veo_key.txt already exists"
 fi
 
 # Runway API key (user must provide)
-if [[ ! -f "$SECRETS_DIR/runway_key.txt" ]]; then
+if [[ ! -f "$SECRETS_DIR/runway_key.txt" ]] || [[ "$FORCE" == "true" ]]; then
     echo "YOUR_RUNWAY_API_KEY_HERE" > "$SECRETS_DIR/runway_key.txt"
     secure_secret "$SECRETS_DIR/runway_key.txt"
-    echo "⚠️  Created runway_key.txt - REPLACE with actual API key!"
+    echo "Created runway_key.txt - REPLACE with actual API key!"
 else
     secure_secret "$SECRETS_DIR/runway_key.txt"
-    echo "⏭️  runway_key.txt already exists"
+    echo "runway_key.txt already exists"
 fi
 
-# Luma API key (user must provide)
-if [[ ! -f "$SECRETS_DIR/luma_key.txt" ]]; then
-    echo "YOUR_LUMA_API_KEY_HERE" > "$SECRETS_DIR/luma_key.txt"
-    secure_secret "$SECRETS_DIR/luma_key.txt"
-    echo "⚠️  Created luma_key.txt - REPLACE with actual API key!"
+# KIE API key (user must provide)
+if [[ ! -f "$SECRETS_DIR/kie_key.txt" ]] || [[ "$FORCE" == "true" ]]; then
+    echo "YOUR_KIE_API_KEY_HERE" > "$SECRETS_DIR/kie_key.txt"
+    secure_secret "$SECRETS_DIR/kie_key.txt"
+    echo "Created kie_key.txt - REPLACE with actual API key!"
 else
-    secure_secret "$SECRETS_DIR/luma_key.txt"
-    echo "⏭️  luma_key.txt already exists"
+    secure_secret "$SECRETS_DIR/kie_key.txt"
+    echo "kie_key.txt already exists"
+fi
+
+# LLM API key for prompt generation (user must provide - OpenAI, Gemini, etc.)
+if [[ ! -f "$SECRETS_DIR/llm_api_key.txt" ]] || [[ "$FORCE" == "true" ]]; then
+    echo "PASTE_YOUR_LLM_API_KEY_HERE" > "$SECRETS_DIR/llm_api_key.txt"
+    secure_secret "$SECRETS_DIR/llm_api_key.txt"
+    echo "Created llm_api_key.txt - REPLACE with actual LLM API key!"
+else
+    secure_secret "$SECRETS_DIR/llm_api_key.txt"
+    echo "llm_api_key.txt already exists"
 fi
 
 # Grafana admin password
-if [[ ! -f "$SECRETS_DIR/grafana_password.txt" ]]; then
+if [[ ! -f "$SECRETS_DIR/grafana_password.txt" ]] || [[ "$FORCE" == "true" ]]; then
     gen_password 24 > "$SECRETS_DIR/grafana_password.txt"
     secure_secret "$SECRETS_DIR/grafana_password.txt"
-    echo "✅ Generated grafana_password.txt"
+    echo "Generated grafana_password.txt: $(mask_secret "$SECRETS_DIR/grafana_password.txt")"
 else
     secure_secret "$SECRETS_DIR/grafana_password.txt"
-    echo "⏭️  grafana_password.txt already exists"
+    echo "grafana_password.txt already exists: $(mask_secret "$SECRETS_DIR/grafana_password.txt")"
 fi
 
 # Vault TLS certificates (self-signed for local verification)
@@ -115,7 +153,7 @@ VAULT_TLS_DIR="./config/vault-tls"
 mkdir -p "$VAULT_TLS_DIR"
 
 if [[ ! -f "$VAULT_TLS_DIR/ca.crt" ]] || [[ ! -f "$VAULT_TLS_DIR/vault.crt" ]] || [[ ! -f "$VAULT_TLS_DIR/vault.key" ]]; then
-    echo "🔐 Generating Vault TLS certificates..."
+    echo "Generating Vault TLS certificates..."
 
     # Generate CA
     openssl genrsa -out "$VAULT_TLS_DIR/ca.key" 2048
@@ -157,9 +195,9 @@ EOF
     rm -f "$VAULT_TLS_DIR/ca.key"
     # Clean up CSR and serial file
     rm -f "$VAULT_TLS_DIR/vault.csr" "$VAULT_TLS_DIR/ca.srl"
-    echo "✅ Generated Vault TLS certificates in $VAULT_TLS_DIR/"
+    echo "Generated Vault TLS certificates in $VAULT_TLS_DIR/"
 else
-    echo "⏭️  Vault TLS certificates already exist in $VAULT_TLS_DIR/"
+    echo "Vault TLS certificates already exist in $VAULT_TLS_DIR/"
 fi
 
 # Nginx TLS certificates (self-signed for local verification)
@@ -167,7 +205,7 @@ NGINX_TLS_DIR="./config/nginx-tls"
 mkdir -p "$NGINX_TLS_DIR"
 
 if [[ ! -f "$NGINX_TLS_DIR/fullchain.pem" ]] || [[ ! -f "$NGINX_TLS_DIR/privkey.pem" ]]; then
-    echo "🔐 Generating Nginx TLS certificates..."
+    echo "Generating Nginx TLS certificates..."
 
     # Generate self-signed certificate for nginx
     openssl req -x509 -nodes -newkey rsa:2048 -keyout "$NGINX_TLS_DIR/privkey.pem" \
@@ -178,23 +216,24 @@ if [[ ! -f "$NGINX_TLS_DIR/fullchain.pem" ]] || [[ ! -f "$NGINX_TLS_DIR/privkey.
 
     chmod 600 "$NGINX_TLS_DIR/privkey.pem"
     chmod 644 "$NGINX_TLS_DIR/fullchain.pem"
-    echo "✅ Generated Nginx TLS certificates in $NGINX_TLS_DIR/"
+    echo "Generated Nginx TLS certificates in $NGINX_TLS_DIR/"
 else
-    echo "⏭️  Nginx TLS certificates already exist in $NGINX_TLS_DIR/"
+    echo "Nginx TLS certificates already exist in $NGINX_TLS_DIR/"
 fi
 
 echo ""
-echo "📋 Summary:"
+echo "Summary:"
 echo "   All secret files created in $SECRETS_DIR/"
 echo "   Vault TLS certificates in $VAULT_TLS_DIR/"
 echo "   Nginx TLS certificates in $NGINX_TLS_DIR/"
 echo ""
-echo "⚠️  IMPORTANT NEXT STEPS:"
+echo "IMPORTANT NEXT STEPS:"
 echo "   1. Replace placeholder API keys with actual values:"
 echo "      - $SECRETS_DIR/elevenlabs_key.txt"
 echo "      - $SECRETS_DIR/veo_key.txt"
 echo "      - $SECRETS_DIR/runway_key.txt"
-echo "      - $SECRETS_DIR/luma_key.txt"
+echo "      - $SECRETS_DIR/kie_key.txt"
+echo "      - $SECRETS_DIR/llm_api_key.txt (for prompt generation)"
 echo ""
 echo "   2. For production, use a proper secrets manager:"
 echo "      - HashiCorp Vault (already in stack)"
@@ -209,6 +248,8 @@ echo ""
 echo "   4. Add to .gitignore (already done):"
 echo "      secrets/"
 echo ""
+echo "   5. Use --force to regenerate all secrets (overwrites existing):"
+echo "      ./scripts/setup-secrets.sh --force"
 echo ""
 
 # Create .env.example for reference
@@ -230,7 +271,8 @@ VAULT_TRANSIT_KEY=biometric-encryption
 ELEVENLABS_API_KEY_FILE=/run/secrets/elevenlabs_key
 VEO_API_KEY_FILE=/run/secrets/veo_key
 RUNWAY_API_KEY_FILE=/run/secrets/runway_key
-LUMA_API_KEY_FILE=/run/secrets/luma_key
+KIE_API_KEY_FILE=/run/secrets/kie_key
+LLM_API_KEY_FILE=/run/secrets/llm_api_key
 
 # Monitoring
 ALERTMANAGER_WEBHOOK_URL=https://alertmanager.example.com
@@ -242,7 +284,7 @@ ARCHIVE_LOCAL_PATH=/data/archive
 GF_SECURITY_ADMIN_PASSWORD_FILE=/run/secrets/grafana_password
 EOF
 
-echo "✅ Created .env.example"
+echo "Created .env.example"
 echo ""
-echo "🚀 Ready for deployment! Run:"
+echo "Ready for deployment! Run:"
 echo "   docker-compose -f docker-compose.prod.yaml up -d"

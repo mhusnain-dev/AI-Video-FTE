@@ -29,28 +29,39 @@ storyIngestion:
 modelRegistry:
   refreshIntervalMs: 300000
   models:
-    - id: "veo3-low"
-      name: "Veo 3 Low Quality"
-      provider: "google"
+    - id: "kie-veo3-fast"
+      name: "Kie.ai Veo 3.1 Fast"
+      provider: "kie"
       maxResolution: "1080p"
-      maxDurationSeconds: 10
-      supportedAspectRatios: ["16:9", "9:16", "1:1", "4:5"]
-      supportedRegions: ["us", "eu", "asia"]
-      costPerSecondUsd: 0.00
+      maxDurationSeconds: 8
+      supportedAspectRatios: ["16:9", "9:16"]
+      supportedRegions: ["global"]
+      costPerSecondUsd: 0.01
       costCurrency: "USD"
-      capabilities: ["text_to_video", "image_to_video", "reference_conditioning"]
-      defaultTimeoutSeconds: 120
-    - id: "veo3-high"
-      name: "Veo 3 High Quality"
-      provider: "google"
+      capabilities: ["text_to_video", "image_to_video", "reference_conditioning", "native_audio", "fast_generation"]
+      defaultTimeoutSeconds: 300
+    - id: "kie-veo3-quality"
+      name: "Kie.ai Veo 3.1 Quality"
+      provider: "kie"
       maxResolution: "4K"
-      maxDurationSeconds: 10
-      supportedAspectRatios: ["16:9", "9:16", "1:1", "4:5"]
-      supportedRegions: ["us", "eu", "asia"]
-      costPerSecondUsd: 0.05
+      maxDurationSeconds: 8
+      supportedAspectRatios: ["16:9", "9:16"]
+      supportedRegions: ["global"]
+      costPerSecondUsd: 0.04
       costCurrency: "USD"
-      capabilities: ["text_to_video", "image_to_video", "reference_conditioning", "native_audio", "high_fidelity"]
-      defaultTimeoutSeconds: 180
+      capabilities: ["text_to_video", "image_to_video", "reference_conditioning", "native_audio", "high_fidelity", "first_last_frame", "extend"]
+      defaultTimeoutSeconds: 300
+    - id: "kie-veo3-lite"
+      name: "Kie.ai Veo 3.1 Lite"
+      provider: "kie"
+      maxResolution: "1080p"
+      maxDurationSeconds: 8
+      supportedAspectRatios: ["16:9", "9:16"]
+      supportedRegions: ["global"]
+      costPerSecondUsd: 0.005
+      costCurrency: "USD"
+      capabilities: ["text_to_video", "image_to_video", "reference_conditioning", "native_audio", "fast_generation"]
+      defaultTimeoutSeconds: 300
     - id: "runway-gen3"
       name: "Runway Gen-3 Alpha"
       provider: "runway"
@@ -75,7 +86,7 @@ modelRegistry:
       defaultTimeoutSeconds: 120
 
 router:
-  systemDefaultPriority: ["veo3-low", "veo3-high", "runway-gen3", "luma-ray2"]
+  systemDefaultPriority: ["runway-gen3", "kie-veo3-fast", "kie-veo3-quality", "kie-veo3-lite"]
   eligibilityCheckEnabled: true
 
 admission:
@@ -86,14 +97,16 @@ admission:
   sacredGuard:
     visualSimilarityThreshold: 0.775
     perModelThresholds:
-      veo3-low: 0.78
-      veo3-high: 0.77
+      kie-veo3-fast: 0.78
+      kie-veo3-quality: 0.77
+      kie-veo3-lite: 0.79
       runway-gen3: 0.79
       luma-ray2: 0.80
   costGuard:
     perModelEstimates:
-      veo3-low: 0.00
-      veo3-high: 0.05
+      kie-veo3-fast: 0.01
+      kie-veo3-quality: 0.04
+      kie-veo3-lite: 0.005
       runway-gen3: 0.08
       luma-ray2: 0.03
     userBudgetUsd: 100.00
@@ -103,8 +116,9 @@ admission:
     rollingAverageDriftThreshold: 0.20
   rateLimit:
     perModel:
-      veo3-low: 10
-      veo3-high: 5
+      kie-veo3-fast: 10
+      kie-veo3-quality: 5
+      kie-veo3-lite: 20
       runway-gen3: 5
       luma-ray2: 20
     perUser: 20
@@ -114,8 +128,9 @@ admission:
 
 dispatch:
   defaultTimeouts:
-    veo3-low: 120
-    veo3-high: 180
+    kie-veo3-fast: 300
+    kie-veo3-quality: 300
+    kie-veo3-lite: 300
     runway-gen3: 180
     luma-ray2: 120
   watchdogPollIntervalMs: 30000
@@ -124,8 +139,9 @@ dispatch:
 
 faceLock:
   defaultPerModelThresholds:
-    veo3-low: 0.82
-    veo3-high: 0.80
+    kie-veo3-fast: 0.82
+    kie-veo3-quality: 0.80
+    kie-veo3-lite: 0.78
     runway-gen3: 0.85
     luma-ray2: 0.78
   maxRetries: 2
