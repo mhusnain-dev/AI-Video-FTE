@@ -126,6 +126,7 @@ export function CharacterUploader({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setError(null);
 
     const nameError = validateName();
@@ -164,7 +165,9 @@ export function CharacterUploader({
         });
       }
 
-      const character = {
+      // Call the actual API
+      const { apiClient } = await import('../api/client');
+      const response = await apiClient.uploadCharacter({
         storyId,
         userId,
         character: {
@@ -172,15 +175,19 @@ export function CharacterUploader({
           imageBase64: imageBase64.split(',')[1], // Remove data URL prefix
           voiceReferenceBase64: voiceReferenceBase64?.split(',')[1],
         },
-      };
+      });
 
-      // In real implementation, this would call the API
-      // For now, simulate the upload
-      const result: CharacterReference = {
-        id: crypto.randomUUID(),
-        ...character.character,
+      if (!response || !(response as any).characterId) {
+        throw new Error((response as any)?.error || 'Upload failed');
+      }
+
+      const character = {
+        id: (response as any).characterId,
+        name: name.trim(),
+        imageBase64: imageBase64.split(',')[1],
+        voiceReferenceBase64: voiceReferenceBase64?.split(',')[1],
         storyId,
-        faceEmbedding: Array.from({ length: 128 }, () => Math.random() * 2 - 1),
+        faceEmbedding: [],
         faceDetected: true,
         sacredGuardPassed: true,
         sacredGuardScore: 0.95,
@@ -188,10 +195,10 @@ export function CharacterUploader({
         createdAt: new Date().toISOString(),
       };
 
-      onUpload(result);
+      onUpload(character);
       resetForm();
-    } catch (err) {
-      setError('Failed to upload character. Please try again.');
+    } catch (err: any) {
+      setError(err.response?.data?.error || err.message || 'Failed to upload character. Please try again.');
     } finally {
       setIsUploading(false);
     }
@@ -219,7 +226,7 @@ export function CharacterUploader({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <div className="space-y-4">
       {/* Image Upload Zone */}
       <div className="relative">
         <div
@@ -381,13 +388,17 @@ export function CharacterUploader({
       )}
 
       <button
-        type="submit"
+        type="button"
         className="btn-primary w-full"
         disabled={disabled || isUploading || !imageFile || !name.trim() || faceDetected === false || sacredGuardPassed === false}
+        onClick={() => {
+          const fakeEvent = { preventDefault: () => {}, stopPropagation: () => {} } as React.FormEvent;
+          handleSubmit(fakeEvent);
+        }}
       >
         {isUploading ? 'Uploading...' : 'Upload Character'}
       </button>
-    </form>
+    </div>
   );
 }
 

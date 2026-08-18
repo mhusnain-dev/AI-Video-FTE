@@ -17,6 +17,7 @@ import { Modal, ConfirmDialog } from '../components/Modal';
 import { StatusBadge } from '../components/ShotCard';
 import type { CharacterReference } from '../types/api';
 import { clsx } from 'clsx';
+import { getUserId } from '../utils/userId';
 
 export function CharacterManager() {
   const { storyId } = useParams<{ storyId: string }>();
@@ -32,11 +33,11 @@ export function CharacterManager() {
   const uploadCharacter = useUploadCharacter();
   const deleteCharacter = useDeleteCharacter();
 
-  const userId = localStorage.getItem('user_id') || 'demo-user';
+  const userId = getUserId();
   const characters = charactersResponse?.data?.characters || [];
 
-  if (story?.data) {
-    setCurrentStory(story.data.id);
+  if (story) {
+    setCurrentStory(story.id);
   }
 
   const handleUpload = (character: CharacterReference) => {
@@ -77,7 +78,7 @@ export function CharacterManager() {
               <div>
                 <h1 className="text-lg font-semibold text-gray-900">Character References</h1>
                 <p className="text-sm text-gray-500">
-                  {story?.data?.brief?.narrative?.substring(0, 60)}...
+                  {story?.brief?.narrative?.substring(0, 60)}...
                 </p>
               </div>
             </div>

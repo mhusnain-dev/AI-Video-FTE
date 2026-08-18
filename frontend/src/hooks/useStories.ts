@@ -82,8 +82,8 @@ export function useCreateStory(
     mutationFn: (data: CreateStoryRequest) => apiClient.createStory(data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: storyKeys.lists() });
-      if (data.data?.storyId) {
-        queryClient.setQueryData(storyKeys.detail(data.data.storyId), data);
+      if (data.storyId) {
+        queryClient.setQueryData(storyKeys.detail(data.storyId), data);
       }
     },
     ...options,
@@ -100,8 +100,8 @@ export function useStory(
     enabled: !!storyId,
     staleTime: 5000,
     refetchInterval: (query) => {
-      const story = query.state.data?.data;
-      if (story && ['in_progress', 'generating', 'merging', 'awaiting_approval', 'approved'].includes(story.status)) {
+      const story = query.state.data;
+      if (story && ['in_progress', 'generating', 'pending_merge', 'merging', 'awaiting_approval', 'approved'].includes(story.status)) {
         return 2000;
       }
       return false;

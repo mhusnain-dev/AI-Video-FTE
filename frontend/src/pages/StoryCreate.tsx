@@ -1,23 +1,54 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeftIcon, CheckCircleIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
-import { useCreateStory } from '../hooks/useStories';
+import { useCreateStory, useCharacters, characterKeys } from '../hooks/useStories';
 import { useUIStore, useNotifications } from '../store/uiStore';
 import { CharacterUploader } from '../components/CharacterUploader';
 import { Modal } from '../components/Modal';
-import type { StoryBrief, AudioConfig } from '../types/api';
+import type { StoryBrief, AudioConfig, CharacterReference } from '../types/api';
+import { clsx } from 'clsx';
+import { getUserId } from '../utils/userId';
 
 const ASPECT_RATIOS = ['16:9', '9:16', '1:1', '4:5'] as const;
 const RESOLUTIONS = ['720p', '1080p', '4K'] as const;
 const MUSIC_SOURCES = ['royalty_free', 'elevenlabs', 'custom'] as const;
 
+const STORAGE_KEY = 'storyCreate_draft';
+
+interface DraftData {
+  step: number;
+  brief: StoryBrief;
+}
+
+function loadDraft(): DraftData | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
+
+function saveDraft(data: DraftData) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch {}
+}
+
+function clearDraft() {
+  localStorage.removeItem(STORAGE_KEY);
+}
+
 export function StoryCreate() {
   const navigate = useNavigate();
   const { notify } = useNotifications();
   const createStory = useCreateStory();
+  const queryClient = useQueryClient();
 
-  const [step, setStep] = useState(1);
-  const [brief, setBrief] = useState<StoryBrief>({
+  // Load draft from localStorage
+  const draft = loadDraft();
+  const [step, setStep] = useState(draft?.step || 1);
+  const [brief, setBrief] = useState<StoryBrief>(draft?.brief || {
     narrative: '',
     targetDurationSeconds: 30,
     aspectRatio: '16:9',
@@ -36,8 +67,25 @@ export function StoryCreate() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showCharacterModal, setShowCharacterModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [storyId, setStoryId] = useState<string | null>(null);
+  const [isCreatingStory, setIsCreatingStory] = useState(false);
+  const [characterUploadSuccess, setCharacterUploadSuccess] = useState(false);
 
-  const maxShots = Math.ceil((brief.targetDurationSeconds || 30) / 10); // Assuming 10s max per shot default
+  // Fetch characters from backend once storyId is available
+  const { data: charactersData } = useCharacters(storyId || '');
+  const characters: CharacterReference[] = charactersData?.characters || [];
+
+  const maxShots = Math.ceil((brief.targetDurationSeconds || 30) / 10);
+
+  // Persist draft to localStorage (debounced)
+  useEffect(() => {
+    if (!storyId) {
+      const timeout = setTimeout(() => {
+        saveDraft({ step, brief });
+      }, 1000);
+      return () => clearTimeout(timeout);
+    }
+  }, [step, brief, storyId]);
 
   // Validation
   const validateStep = useCallback((stepNum: number) => {
@@ -69,28 +117,37 @@ export function StoryCreate() {
     return Object.keys(newErrors).length === 0;
   }, [brief]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
+  // Navigate to the story plan (story already created in step 2)
+  const handleCreateStory = async () => {
     if (!validateStep(3)) return;
 
-    setIsSubmitting(true);
-
-    try {
-      const userId = localStorage.getItem('user_id') || 'demo-user';
-      const result = await createStory.mutateAsync({ brief, userId });
-
-      notify.success('Story Created!', 'Your story has been created with a shot plan.');
-      navigate(`/stories/${result.data?.storyId}/plan`);
-    } catch (err: any) {
-      notify.error('Failed to Create Story', err.response?.data?.error || err.message);
-    } finally {
-      setIsSubmitting(false);
-    }
+    clearDraft();
+    notify.success('Story Created!', 'Your story has been created with a shot plan.');
+    navigate(`/stories/${storyId}/plan`);
   };
 
-  const handleNext = () => {
-    if (validateStep(step)) {
+  // Create story after step 2 to get a real storyId for character uploads
+  const handleNext = async () => {
+    if (!validateStep(step)) return;
+
+    if (step === 2 && !storyId) {
+      // Create story with minimal data to get a storyId
+      setIsCreatingStory(true);
+      try {
+        const userId = getUserId();
+        const result = await createStory.mutateAsync({ brief, userId });
+        const newStoryId = result.storyId;
+        if (newStoryId) {
+          setStoryId(newStoryId);
+          clearDraft();
+          setStep(3);
+        }
+      } catch (err: any) {
+        notify.error('Failed to create story', err.response?.data?.error || err.message);
+      } finally {
+        setIsCreatingStory(false);
+      }
+    } else {
       setStep(s => s + 1);
     }
   };
@@ -104,7 +161,6 @@ export function StoryCreate() {
       ...prev,
       [field]: value,
     }));
-    // Clear error when user types
     if (errors[field]) {
       setErrors(prev => ({ ...prev, [field]: '' }));
     }
@@ -117,12 +173,12 @@ export function StoryCreate() {
     }));
   };
 
-  const handleCharacterUpload = (character: any) => {
-    setBrief(prev => ({
-      ...prev,
-      characterReferences: [...(prev.characterReferences || []), character.id],
-    }));
-    setShowCharacterModal(false);
+  const handleCharacterUpload = (character: CharacterReference) => {
+    if (storyId) {
+      queryClient.invalidateQueries({ queryKey: characterKeys.list(storyId) });
+    }
+    setCharacterUploadSuccess(true);
+    setTimeout(() => setCharacterUploadSuccess(false), 3000);
   };
 
   const steps = [
@@ -133,6 +189,17 @@ export function StoryCreate() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Loading overlay during story creation */}
+      {isCreatingStory && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
+          <div className="bg-white rounded-xl p-8 shadow-2xl text-center max-w-sm mx-4">
+            <svg className="animate-spin h-12 w-12 text-primary-600 mx-auto mb-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Creating Your Story</h3>
+            <p className="text-sm text-gray-500">Analyzing narrative, generating shot plan... This may take a moment.</p>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -151,14 +218,18 @@ export function StoryCreate() {
                 <div className="flex items-center">
                   <div
                     className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                      i + 1 < step
+                      i + 1 < step || (i + 1 === 3 && storyId)
                         ? 'bg-green-500 text-white'
                         : i + 1 === step
                         ? 'bg-primary-500 text-white'
                         : 'bg-gray-200 text-gray-500'
                     }`}
                   >
-                    {i + 1 < step ? <CheckCircleIcon className="w-5 h-5" /> : s.number}
+                    {i + 1 < step || (i + 1 === 3 && storyId) ? (
+                      <CheckCircleIcon className="w-5 h-5" />
+                    ) : (
+                      s.number
+                    )}
                   </div>
                   <div className="ml-3">
                     <p className={`text-sm font-medium ${i + 1 <= step ? 'text-gray-900' : 'text-gray-500'}`}>
@@ -170,7 +241,7 @@ export function StoryCreate() {
                 {i < steps.length - 1 && (
                   <div
                     className={`flex-1 h-0.5 mx-2 ${
-                      i + 1 < step ? 'bg-green-500' : 'bg-gray-200'
+                      i + 1 < step || (i + 1 === 2 && storyId) ? 'bg-green-500' : 'bg-gray-200'
                     }`}
                   />
                 )}
@@ -182,7 +253,7 @@ export function StoryCreate() {
 
       {/* Form */}
       <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="space-y-6">
           {/* Step 1: Story Brief */}
           {step >= 1 && (
             <div className="card p-6 space-y-6 animate-fade-in">
@@ -422,20 +493,33 @@ export function StoryCreate() {
                 </div>
               </div>
 
-              <CharacterUploader
-                storyId="new"
-                userId={localStorage.getItem('user_id') || 'demo-user'}
-                onUpload={handleCharacterUpload}
-                existingCharacters={[]}
-              />
+              {storyId ? (
+                <CharacterUploader
+                  storyId={storyId}
+                  userId={getUserId()}
+                  onUpload={handleCharacterUpload}
+                  existingCharacters={characters}
+                />
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  Creating story... Please wait.
+                </div>
+              )}
 
-              {brief.characterReferences?.length && (
+              {characterUploadSuccess && (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm flex items-center gap-2">
+                  <CheckCircleIcon className="w-5 h-5 text-green-600" />
+                  Character uploaded successfully! You can upload more or proceed to create your story.
+                </div>
+              )}
+
+              {characters.length > 0 && (
                 <div className="border-t border-gray-200 pt-4">
                   <h3 className="font-medium text-gray-900 mb-3">Uploaded Characters</h3>
                   <div className="flex flex-wrap gap-2">
-                    {brief.characterReferences.map((charId: string, i: number) => (
-                      <span key={i} className="px-3 py-1 bg-green-50 text-green-700 rounded-full text-sm flex items-center gap-1">
-                        Character {i + 1}
+                    {characters.map((char) => (
+                      <span key={char.id} className="px-3 py-1 bg-green-50 text-green-700 rounded-full text-sm flex items-center gap-1">
+                        {char.name}
                       </span>
                     ))}
                   </div>
@@ -460,14 +544,21 @@ export function StoryCreate() {
                 <button
                   type="button"
                   onClick={handleNext}
+                  disabled={isCreatingStory}
                   className="btn-primary"
                 >
-                  Next →
+                  {isCreatingStory ? (
+                    <span className="flex items-center gap-2">
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                      Creating story...
+                    </span>
+                  ) : 'Next →'}
                 </button>
               )}
-              {step === 3 && (
+              {step === 3 && storyId && (
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={handleCreateStory}
                   disabled={isSubmitting || createStory.isPending}
                   className="btn-primary"
                 >
@@ -476,7 +567,7 @@ export function StoryCreate() {
               )}
             </div>
           </div>
-        </form>
+        </div>
       </main>
 
       {/* Character Upload Modal */}
@@ -486,17 +577,17 @@ export function StoryCreate() {
         title="Upload Character Reference"
         size="lg"
       >
-        <CharacterUploader
-          storyId="new"
-          userId={localStorage.getItem('user_id') || 'demo-user'}
-          onUpload={handleCharacterUpload}
-          existingCharacters={[]}
-        />
+        {storyId && (
+          <CharacterUploader
+            storyId={storyId}
+            userId={getUserId()}
+            onUpload={handleCharacterUpload}
+            existingCharacters={characters}
+          />
+        )}
       </Modal>
     </div>
   );
 }
-
-import { clsx } from 'clsx';
 
 export default StoryCreate;
