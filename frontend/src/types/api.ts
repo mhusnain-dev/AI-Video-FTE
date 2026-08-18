@@ -11,6 +11,7 @@ export type StoryStatus =
   | 'approved'
   | 'in_progress'
   | 'generating'
+  | 'pending_merge'
   | 'merging'
   | 'completed'
   | 'failed'
@@ -61,6 +62,7 @@ export interface Story {
   userId: string;
   brief: StoryBrief;
   status: StoryStatus;
+  shots?: Shot[];
   shotPlan?: Shot[];
   currentVersion: number;
   createdAt: string;

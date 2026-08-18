@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeftIcon,
@@ -22,10 +22,12 @@ import {
   useUpdateUserSettings,
 } from '../hooks/useStories';
 import { clsx } from 'clsx';
+import { getUserId } from '../utils/userId';
+import type { ElementType } from 'react';
 
 type SettingsTab = 'models' | 'cost' | 'rate-limits' | 'sacred-guard' | 'face-lock' | 'transitions' | 'audio' | 'security' | 'video';
 
-const TABS: { id: SettingsTab; label: string; icon: any }[] = [
+const TABS: { id: SettingsTab; label: string; icon: ElementType }[] = [
   { id: 'models', label: 'Models', icon: CpuChipIcon },
   { id: 'cost', label: 'Cost', icon: CurrencyDollarIcon },
   { id: 'rate-limits', label: 'Rate Limits', icon: ClockIcon },
@@ -37,18 +39,46 @@ const TABS: { id: SettingsTab; label: string; icon: any }[] = [
   { id: 'video', label: 'Video', icon: VideoCameraIcon },
 ];
 
-const MODELS = ['veo3-low', 'veo3-high', 'runway-gen3', 'luma-ray2'];
+const MODELS = ['veo3-low', 'veo3-high', 'runway-gen3'];
+
+interface UserSettingsData {
+  cost?: {
+    estimates?: Record<string, number>;
+    singleShotDrift?: number;
+    rollingDrift?: number;
+    userBudget?: number;
+    projectCeiling?: number;
+  };
+  rateLimits?: {
+    perModel?: Record<string, number>;
+    perUser?: number;
+    global?: number;
+  };
+  faceLock?: {
+    thresholds?: Record<string, number>;
+    maxRetries?: number;
+  };
+  transitions?: {
+    defaultType?: string;
+    defaultDuration?: number;
+  };
+  audio?: {
+    defaultVoice?: string;
+    defaultStyle?: string;
+  };
+  video?: {
+    defaultResolution?: string;
+    defaultAspectRatio?: string;
+  };
+}
 
 export function Settings() {
   const navigate = useNavigate();
-  const { notify } = useNotifications();
   const [activeTab, setActiveTab] = useState<SettingsTab>('models');
-
-  const userId = localStorage.getItem('user_id') || 'demo-user';
+  const userId = getUserId();
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3 h-16">
@@ -62,7 +92,6 @@ export function Settings() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="lg:grid lg:grid-cols-4 lg:gap-8">
-          {/* Tab Navigation */}
           <nav className="lg:col-span-1 mb-6 lg:mb-0">
             <div className="card p-2 space-y-1 sticky top-24">
               {TABS.map((tab) => (
@@ -83,17 +112,16 @@ export function Settings() {
             </div>
           </nav>
 
-          {/* Tab Content */}
           <div className="lg:col-span-3">
             {activeTab === 'models' && <ModelsSettings userId={userId} />}
-            {activeTab === 'cost' && <CostSettings />}
-            {activeTab === 'rate-limits' && <RateLimitSettings />}
+            {activeTab === 'cost' && <CostSettings userId={userId} />}
+            {activeTab === 'rate-limits' && <RateLimitSettings userId={userId} />}
             {activeTab === 'sacred-guard' && <SacredGuardSettings />}
-            {activeTab === 'face-lock' && <FaceLockSettings />}
-            {activeTab === 'transitions' && <TransitionSettings />}
-            {activeTab === 'audio' && <AudioSettings />}
+            {activeTab === 'face-lock' && <FaceLockSettings userId={userId} />}
+            {activeTab === 'transitions' && <TransitionSettings userId={userId} />}
+            {activeTab === 'audio' && <AudioSettings userId={userId} />}
             {activeTab === 'security' && <SecuritySettings />}
-            {activeTab === 'video' && <VideoSettings />}
+            {activeTab === 'video' && <VideoSettings userId={userId} />}
           </div>
         </div>
       </div>
@@ -113,16 +141,29 @@ function SettingsCard({ title, description, children }: { title: string; descrip
   );
 }
 
+function useSettingsState(userId: string) {
+  const { data: settings, isLoading } = useUserSettings(userId);
+  const updateSettings = useUpdateUserSettings();
+  return { settings: (settings ?? {}) as UserSettingsData, isLoading, updateSettings };
+}
+
 function ModelsSettings({ userId }: { userId: string }) {
   const { notify } = useNotifications();
   const { data: priority } = useUserModelPriority(userId);
   const updatePriority = useUpdateUserModelPriority();
 
   const [priorityList, setPriorityList] = useState<string[]>(
-    priority?.data?.priorityList || ['veo3-low', 'veo3-high', 'runway-gen3', 'luma-ray2']
+    priority?.data?.priorityList ?? ['veo3-low', 'veo3-high', 'runway-gen3']
   );
   const [useSystemDefault, setUseSystemDefault] = useState(priority?.data?.useSystemDefault ?? true);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (priority?.data) {
+      setPriorityList(priority.data.priorityList ?? ['veo3-low', 'veo3-high', 'runway-gen3']);
+      setUseSystemDefault(priority.data.useSystemDefault ?? true);
+    }
+  }, [priority?.data]);
 
   const handleReorder = (from: number, to: number) => {
     const newList = [...priorityList];
@@ -135,15 +176,16 @@ function ModelsSettings({ userId }: { userId: string }) {
     try {
       await updatePriority.mutateAsync({ userId, priorityList, useSystemDefault });
       notify.success('Saved', 'Model priority updated');
-    } catch (err: any) {
-      notify.error('Failed', err.message);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to save';
+      notify.error('Failed', message);
     }
   };
 
   return (
     <SettingsCard
       title="Model Priority (CL-006)"
-      description="Configure your preferred order of video generation models. The router will try models in this order based on eligibility."
+      description="Configure your preferred order of video generation models."
     >
       <label className="flex items-center gap-3 mb-4 p-3 bg-gray-50 rounded-lg cursor-pointer">
         <input
@@ -154,7 +196,7 @@ function ModelsSettings({ userId }: { userId: string }) {
         />
         <div>
           <span className="font-medium text-gray-900">Use System Default Priority</span>
-          <p className="text-sm text-gray-500">veo3-low → veo3-high → runway-gen3 → luma-ray2</p>
+          <p className="text-sm text-gray-500">veo3-low → veo3-high → runway-gen3</p>
         </div>
       </label>
 
@@ -180,23 +222,46 @@ function ModelsSettings({ userId }: { userId: string }) {
         </div>
       )}
 
-      <button onClick={handleSave} className="btn-primary">Save Model Priority</button>
+      <button onClick={handleSave} disabled={updatePriority.isPending} className="btn-primary">
+        {updatePriority.isPending ? 'Saving...' : 'Save Model Priority'}
+      </button>
     </SettingsCard>
   );
 }
 
-function CostSettings() {
+function CostSettings({ userId }: { userId: string }) {
   const { notify } = useNotifications();
-  const [estimates, setEstimates] = useState<Record<string, number>>({
+  const { settings, updateSettings } = useSettingsState(userId);
+
+  const [estimates, setEstimates] = useState<Record<string, number>>(settings.cost?.estimates ?? {
     'veo3-low': 0.00,
     'veo3-high': 0.05,
     'runway-gen3': 0.08,
-    'luma-ray2': 0.03,
   });
-  const [singleShotDrift, setSingleShotDrift] = useState(0.50);
-  const [rollingDrift, setRollingDrift] = useState(0.20);
-  const [userBudget, setUserBudget] = useState(100);
-  const [projectCeiling, setProjectCeiling] = useState(500);
+  const [singleShotDrift, setSingleShotDrift] = useState(settings.cost?.singleShotDrift ?? 0.50);
+  const [rollingDrift, setRollingDrift] = useState(settings.cost?.rollingDrift ?? 0.20);
+  const [userBudget, setUserBudget] = useState(settings.cost?.userBudget ?? 100);
+  const [projectCeiling, setProjectCeiling] = useState(settings.cost?.projectCeiling ?? 500);
+
+  useEffect(() => {
+    if (settings.cost) {
+      if (settings.cost.estimates) setEstimates(settings.cost.estimates);
+      if (settings.cost.singleShotDrift !== undefined) setSingleShotDrift(settings.cost.singleShotDrift);
+      if (settings.cost.rollingDrift !== undefined) setRollingDrift(settings.cost.rollingDrift);
+      if (settings.cost.userBudget !== undefined) setUserBudget(settings.cost.userBudget);
+      if (settings.cost.projectCeiling !== undefined) setProjectCeiling(settings.cost.projectCeiling);
+    }
+  }, [settings.cost]);
+
+  const handleSave = async () => {
+    try {
+      await updateSettings.mutateAsync({ userId, settings: { cost: { estimates, singleShotDrift, rollingDrift, userBudget, projectCeiling } } });
+      notify.success('Saved', 'Cost settings updated');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to save';
+      notify.error('Failed', message);
+    }
+  };
 
   return (
     <>
@@ -210,8 +275,8 @@ function CostSettings() {
                 <input
                   type="number"
                   step="0.01"
-                  value={estimates[model]}
-                  onChange={(e) => setEstimates({ ...estimates, [model]: parseFloat(e.target.value) })}
+                  value={estimates[model] ?? 0}
+                  onChange={(e) => setEstimates({ ...estimates, [model]: parseFloat(e.target.value) || 0 })}
                   className="input pl-7"
                 />
               </div>
@@ -237,29 +302,50 @@ function CostSettings() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="label">User Budget (USD)</label>
-            <input type="number" value={userBudget} onChange={(e) => setUserBudget(parseFloat(e.target.value))} className="input" />
+            <input type="number" value={userBudget} onChange={(e) => setUserBudget(parseFloat(e.target.value) || 0)} className="input" />
           </div>
           <div>
             <label className="label">Project Ceiling (USD)</label>
-            <input type="number" value={projectCeiling} onChange={(e) => setProjectCeiling(parseFloat(e.target.value))} className="input" />
+            <input type="number" value={projectCeiling} onChange={(e) => setProjectCeiling(parseFloat(e.target.value) || 0)} className="input" />
           </div>
         </div>
-        <button onClick={() => notify.success('Saved', 'Cost settings updated')} className="btn-primary mt-4">Save Cost Settings</button>
+        <button onClick={handleSave} disabled={updateSettings.isPending} className="btn-primary mt-4">
+          {updateSettings.isPending ? 'Saving...' : 'Save Cost Settings'}
+        </button>
       </SettingsCard>
     </>
   );
 }
 
-function RateLimitSettings() {
+function RateLimitSettings({ userId }: { userId: string }) {
   const { notify } = useNotifications();
-  const [perModel, setPerModel] = useState<Record<string, number>>({
+  const { settings, updateSettings } = useSettingsState(userId);
+
+  const [perModel, setPerModel] = useState<Record<string, number>>(settings.rateLimits?.perModel ?? {
     'veo3-low': 10,
     'veo3-high': 5,
     'runway-gen3': 5,
-    'luma-ray2': 20,
   });
-  const [perUser, setPerUser] = useState(20);
-  const [global, setGlobal] = useState(100);
+  const [perUser, setPerUser] = useState(settings.rateLimits?.perUser ?? 20);
+  const [globalLimit, setGlobalLimit] = useState(settings.rateLimits?.global ?? 100);
+
+  useEffect(() => {
+    if (settings.rateLimits) {
+      if (settings.rateLimits.perModel) setPerModel(settings.rateLimits.perModel);
+      if (settings.rateLimits.perUser !== undefined) setPerUser(settings.rateLimits.perUser);
+      if (settings.rateLimits.global !== undefined) setGlobalLimit(settings.rateLimits.global);
+    }
+  }, [settings.rateLimits]);
+
+  const handleSave = async () => {
+    try {
+      await updateSettings.mutateAsync({ userId, settings: { rateLimits: { perModel, perUser, global: globalLimit } } });
+      notify.success('Saved', 'Rate limits updated');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to save';
+      notify.error('Failed', message);
+    }
+  };
 
   return (
     <SettingsCard title="Rate Limits (CL-012)" description="Requests per minute limits per model, user, and globally">
@@ -270,7 +356,7 @@ function RateLimitSettings() {
             {MODELS.map((model) => (
               <div key={model}>
                 <label className="label">{model}</label>
-                <input type="number" value={perModel[model]} onChange={(e) => setPerModel({ ...perModel, [model]: parseInt(e.target.value) })} className="input" />
+                <input type="number" value={perModel[model] ?? 0} onChange={(e) => setPerModel({ ...perModel, [model]: parseInt(e.target.value) || 0 })} className="input" />
               </div>
             ))}
           </div>
@@ -278,14 +364,16 @@ function RateLimitSettings() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="label">Per-User Limit</label>
-            <input type="number" value={perUser} onChange={(e) => setPerUser(parseInt(e.target.value))} className="input" />
+            <input type="number" value={perUser} onChange={(e) => setPerUser(parseInt(e.target.value) || 0)} className="input" />
           </div>
           <div>
             <label className="label">Global Limit</label>
-            <input type="number" value={global} onChange={(e) => setGlobal(parseInt(e.target.value))} className="input" />
+            <input type="number" value={globalLimit} onChange={(e) => setGlobalLimit(parseInt(e.target.value) || 0)} className="input" />
           </div>
         </div>
-        <button onClick={() => notify.success('Saved', 'Rate limits updated')} className="btn-primary">Save Rate Limits</button>
+        <button onClick={handleSave} disabled={updateSettings.isPending} className="btn-primary">
+          {updateSettings.isPending ? 'Saving...' : 'Save Rate Limits'}
+        </button>
       </div>
     </SettingsCard>
   );
@@ -300,16 +388,23 @@ function SacredGuardSettings() {
     'veo3-low': 0.78,
     'veo3-high': 0.77,
     'runway-gen3': 0.79,
-    'luma-ray2': 0.80,
   });
   const [dualApprove, setDualApprove] = useState(false);
+
+  useEffect(() => {
+    if (thresholds?.data) {
+      if (thresholds.data.perModelThresholds) setPerModel(thresholds.data.perModelThresholds);
+      if (thresholds.data.dualApprove !== undefined) setDualApprove(thresholds.data.dualApprove);
+    }
+  }, [thresholds?.data]);
 
   const handleSave = async () => {
     try {
       await updateThresholds.mutateAsync({ perModelThresholds: perModel, dualApprove });
       notify.success('Saved', 'Sacred Guard thresholds updated');
-    } catch (err: any) {
-      notify.error('Failed', err.message);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to save';
+      notify.error('Failed', message);
     }
   };
 
@@ -321,13 +416,13 @@ function SacredGuardSettings() {
       <div className="space-y-4">
         {MODELS.map((model) => (
           <div key={model}>
-            <label className="label">{model}: {perModel[model].toFixed(2)}</label>
+            <label className="label">{model}: {perModel[model]?.toFixed(2) ?? '0.78'}</label>
             <input
               type="range"
               min="0.70"
               max="0.85"
               step="0.01"
-              value={perModel[model]}
+              value={perModel[model] ?? 0.78}
               onChange={(e) => setPerModel({ ...perModel, [model]: parseFloat(e.target.value) })}
               className="w-full"
             />
@@ -346,21 +441,41 @@ function SacredGuardSettings() {
           </div>
         </label>
 
-        <button onClick={handleSave} className="btn-primary">Save Sacred Guard Settings</button>
+        <button onClick={handleSave} disabled={updateThresholds.isPending} className="btn-primary">
+          {updateThresholds.isPending ? 'Saving...' : 'Save Sacred Guard Settings'}
+        </button>
       </div>
     </SettingsCard>
   );
 }
 
-function FaceLockSettings() {
+function FaceLockSettings({ userId }: { userId: string }) {
   const { notify } = useNotifications();
-  const [thresholds, setThresholds] = useState<Record<string, number>>({
+  const { settings, updateSettings } = useSettingsState(userId);
+
+  const [thresholds, setThresholds] = useState<Record<string, number>>(settings.faceLock?.thresholds ?? {
     'veo3-low': 0.82,
     'veo3-high': 0.80,
     'runway-gen3': 0.85,
-    'luma-ray2': 0.78,
   });
-  const [maxRetries, setMaxRetries] = useState(2);
+  const [maxRetries, setMaxRetries] = useState(settings.faceLock?.maxRetries ?? 2);
+
+  useEffect(() => {
+    if (settings.faceLock) {
+      if (settings.faceLock.thresholds) setThresholds(settings.faceLock.thresholds);
+      if (settings.faceLock.maxRetries !== undefined) setMaxRetries(settings.faceLock.maxRetries);
+    }
+  }, [settings.faceLock]);
+
+  const handleSave = async () => {
+    try {
+      await updateSettings.mutateAsync({ userId, settings: { faceLock: { thresholds, maxRetries } } });
+      notify.success('Saved', 'Face-Lock settings updated');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to save';
+      notify.error('Failed', message);
+    }
+  };
 
   return (
     <SettingsCard
@@ -370,13 +485,13 @@ function FaceLockSettings() {
       <div className="space-y-4">
         {MODELS.map((model) => (
           <div key={model}>
-            <label className="label">{model}: {thresholds[model].toFixed(2)}</label>
+            <label className="label">{model}: {thresholds[model]?.toFixed(2) ?? '0.82'}</label>
             <input
               type="range"
               min="0.70"
               max="0.95"
               step="0.01"
-              value={thresholds[model]}
+              value={thresholds[model] ?? 0.82}
               onChange={(e) => setThresholds({ ...thresholds, [model]: parseFloat(e.target.value) })}
               className="w-full"
             />
@@ -388,16 +503,27 @@ function FaceLockSettings() {
           <input type="range" min="0" max="5" step="1" value={maxRetries} onChange={(e) => setMaxRetries(parseInt(e.target.value))} className="w-full" />
         </div>
 
-        <button onClick={() => notify.success('Saved', 'Face-Lock settings updated')} className="btn-primary">Save Face-Lock Settings</button>
+        <button onClick={handleSave} disabled={updateSettings.isPending} className="btn-primary">
+          {updateSettings.isPending ? 'Saving...' : 'Save Face-Lock Settings'}
+        </button>
       </div>
     </SettingsCard>
   );
 }
 
-function TransitionSettings() {
+function TransitionSettings({ userId }: { userId: string }) {
   const { notify } = useNotifications();
-  const [defaultType, setDefaultType] = useState('crossfade');
-  const [defaultDuration, setDefaultDuration] = useState(0.5);
+  const { settings, updateSettings } = useSettingsState(userId);
+
+  const [defaultType, setDefaultType] = useState(settings.transitions?.defaultType ?? 'crossfade');
+  const [defaultDuration, setDefaultDuration] = useState(settings.transitions?.defaultDuration ?? 0.5);
+
+  useEffect(() => {
+    if (settings.transitions) {
+      if (settings.transitions.defaultType) setDefaultType(settings.transitions.defaultType);
+      if (settings.transitions.defaultDuration !== undefined) setDefaultDuration(settings.transitions.defaultDuration);
+    }
+  }, [settings.transitions]);
 
   const FFMPEG_FILTERS = [
     'crossfade', 'fade', 'fadeblack', 'fadewhite', 'slideleft', 'slideright',
@@ -405,6 +531,16 @@ function TransitionSettings() {
     'wiperight', 'wipeup', 'wipedown', 'dissolve', 'pixelize', 'radial',
     'smoothleft', 'smoothright', 'diagtl',
   ];
+
+  const handleSave = async () => {
+    try {
+      await updateSettings.mutateAsync({ userId, settings: { transitions: { defaultType, defaultDuration } } });
+      notify.success('Saved', 'Transition settings updated');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to save';
+      notify.error('Failed', message);
+    }
+  };
 
   return (
     <SettingsCard
@@ -437,17 +573,38 @@ function TransitionSettings() {
           </div>
         </div>
 
-        <button onClick={() => notify.success('Saved', 'Transition settings updated')} className="btn-primary">Save Transition Settings</button>
+        <button onClick={handleSave} disabled={updateSettings.isPending} className="btn-primary">
+          {updateSettings.isPending ? 'Saving...' : 'Save Transition Settings'}
+        </button>
       </div>
     </SettingsCard>
   );
 }
 
-function AudioSettings() {
+function AudioSettings({ userId }: { userId: string }) {
   const { notify } = useNotifications();
+  const { settings, updateSettings } = useSettingsState(userId);
+
   const [activeSubTab, setActiveSubTab] = useState<'voice' | 'music'>('voice');
-  const [defaultVoice, setDefaultVoice] = useState('shivank');
-  const [defaultStyle, setDefaultStyle] = useState('narration');
+  const [defaultVoice, setDefaultVoice] = useState(settings.audio?.defaultVoice ?? 'shivank');
+  const [defaultStyle, setDefaultStyle] = useState(settings.audio?.defaultStyle ?? 'narration');
+
+  useEffect(() => {
+    if (settings.audio) {
+      if (settings.audio.defaultVoice) setDefaultVoice(settings.audio.defaultVoice);
+      if (settings.audio.defaultStyle) setDefaultStyle(settings.audio.defaultStyle);
+    }
+  }, [settings.audio]);
+
+  const handleSave = async () => {
+    try {
+      await updateSettings.mutateAsync({ userId, settings: { audio: { defaultVoice, defaultStyle } } });
+      notify.success('Saved', 'Audio settings updated');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to save';
+      notify.error('Failed', message);
+    }
+  };
 
   return (
     <SettingsCard
@@ -485,7 +642,7 @@ function AudioSettings() {
               <option value="storytelling">Storytelling</option>
             </select>
           </div>
-          <button className="btn-secondary">▶ Preview Voice</button>
+          <button className="btn-secondary">Preview Voice</button>
         </div>
       ) : (
         <div className="space-y-4">
@@ -508,7 +665,9 @@ function AudioSettings() {
         </div>
       )}
 
-      <button onClick={() => notify.success('Saved', 'Audio settings updated')} className="btn-primary mt-4">Save Audio Settings</button>
+      <button onClick={handleSave} disabled={updateSettings.isPending} className="btn-primary mt-4">
+        {updateSettings.isPending ? 'Saving...' : 'Save Audio Settings'}
+      </button>
     </SettingsCard>
   );
 }
@@ -552,10 +711,29 @@ function SecuritySettings() {
   );
 }
 
-function VideoSettings() {
+function VideoSettings({ userId }: { userId: string }) {
   const { notify } = useNotifications();
-  const [defaultResolution, setDefaultResolution] = useState('1080p');
-  const [defaultAspectRatio, setDefaultAspectRatio] = useState('16:9');
+  const { settings, updateSettings } = useSettingsState(userId);
+
+  const [defaultResolution, setDefaultResolution] = useState(settings.video?.defaultResolution ?? '1080p');
+  const [defaultAspectRatio, setDefaultAspectRatio] = useState(settings.video?.defaultAspectRatio ?? '16:9');
+
+  useEffect(() => {
+    if (settings.video) {
+      if (settings.video.defaultResolution) setDefaultResolution(settings.video.defaultResolution);
+      if (settings.video.defaultAspectRatio) setDefaultAspectRatio(settings.video.defaultAspectRatio);
+    }
+  }, [settings.video]);
+
+  const handleSave = async () => {
+    try {
+      await updateSettings.mutateAsync({ userId, settings: { video: { defaultResolution, defaultAspectRatio } } });
+      notify.success('Saved', 'Video settings updated');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to save';
+      notify.error('Failed', message);
+    }
+  };
 
   return (
     <SettingsCard
@@ -581,7 +759,9 @@ function VideoSettings() {
           </select>
         </div>
       </div>
-      <button onClick={() => notify.success('Saved', 'Video settings updated')} className="btn-primary mt-4">Save Video Settings</button>
+      <button onClick={handleSave} disabled={updateSettings.isPending} className="btn-primary mt-4">
+        {updateSettings.isPending ? 'Saving...' : 'Save Video Settings'}
+      </button>
     </SettingsCard>
   );
 }

@@ -14,6 +14,7 @@ import { useUIStore, useNotifications } from '../store/uiStore';
 import { StatusBadge } from '../components/ShotCard';
 import type { Shot, ShotPlanRevision } from '../types/api';
 import { clsx } from 'clsx';
+import { getUserId } from '../utils/userId';
 
 function GripHandle({ className = '' }: { className?: string }) {
   return (
@@ -36,17 +37,17 @@ export function ShotPlanEditor() {
   const { data: story, isLoading, refetch } = useStory(storyId || '');
   const revisePlan = useReviseShotPlan();
 
-  const userId = localStorage.getItem('user_id') || 'demo-user';
+  const userId = getUserId();
 
   useEffect(() => {
-    if (story?.data) {
-      setCurrentStory(story.data.id);
-      if (localShots.length === 0 && story.data.shotPlan) {
-        setLocalShots([...story.data.shotPlan]);
+    if (story) {
+      setCurrentStory(story.id);
+      if (localShots.length === 0 && story.shots) {
+        setLocalShots([...story.shots]);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [story?.data?.id]);
+  }, [story?.id]);
 
   const handleSave = async () => {
     if (revisions.length === 0) {
@@ -137,7 +138,7 @@ export function ShotPlanEditor() {
     );
   }
 
-  if (!story?.data) {
+  if (!story) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -149,8 +150,8 @@ export function ShotPlanEditor() {
     );
   }
 
-  const storyData = story.data;
-  const shots = localShots.length > 0 ? localShots : (storyData.shotPlan || []);
+  const storyData = story;
+  const shots = localShots.length > 0 ? localShots : (storyData.shots || []);
   const status = storyData.status;
   const canEdit = ['draft', 'planning', 'awaiting_approval'].includes(status);
 

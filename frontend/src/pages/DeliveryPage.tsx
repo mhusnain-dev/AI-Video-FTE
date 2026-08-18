@@ -23,10 +23,12 @@ import { useDelivery, useMergeStory, usePartialRegenerate, useDownloadUrl } from
 import { useStory } from '../hooks/useStories';
 import { useUIStore, useNotifications } from '../store/uiStore';
 import { StatusBadge } from '../components/ShotCard';
+import { MergeApprovalDialog } from '../components/MergeApprovalDialog';
 import { Modal, ConfirmDialog } from '../components/Modal';
 import { VideoPlayer } from '../components/VideoPlayer';
 import type { DeliveryPackage, Shot, SubtitleInfo } from '../types/api';
 import { clsx } from 'clsx';
+import { getUserId } from '../utils/userId';
 
 export function DeliveryPage() {
   const { storyId } = useParams<{ storyId: string }>();
@@ -49,8 +51,8 @@ export function DeliveryPage() {
 
   const { data: story } = useStory(storyId as string);
 
-  if (story?.data) {
-    setCurrentStory(story.data.id);
+  if (story) {
+    setCurrentStory(story.id);
   }
 
   const handleMerge = async () => {
@@ -69,7 +71,7 @@ export function DeliveryPage() {
       await partialRegenerate.mutateAsync({
         storyId: storyId!,
         shotIds: selectedShots,
-        userId: localStorage.getItem('user_id') || 'demo-user',
+        userId: getUserId(),
       });
       notify.success('Partial Regeneration Started', `${selectedShots.length} shot(s) will be regenerated.`);
       setShowPartialRegen(false);
@@ -121,7 +123,7 @@ export function DeliveryPage() {
   }
 
   if (isError || !delivery?.data) {
-    const storyData = story?.data;
+    const storyData = story;
     const status = storyData?.status;
     const shots = storyData?.shotPlan || [];
 
@@ -178,12 +180,12 @@ export function DeliveryPage() {
               </button>
               <div>
                 <h1 className="text-lg font-semibold text-gray-900">Video Delivery</h1>
-                <p className="text-sm text-gray-500">{story?.data?.brief?.narrative?.substring(0, 80)}...</p>
+                <p className="text-sm text-gray-500">{story?.brief?.narrative?.substring(0, 80)}...</p>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-              <StatusBadge status={story?.data?.status || 'completed'} type="story" size="md" />
+              <StatusBadge status={story?.status || 'completed'} type="story" size="md" />
               {expiry && (
                 <div className="text-sm text-gray-500 hidden sm:block">
                   Link expires: {formatTimeRemaining(expiry)}
@@ -260,7 +262,7 @@ export function DeliveryPage() {
         >
           <PartialRegenModal
             storyId={storyId!}
-            shots={story?.data?.shotPlan || []}
+            shots={story?.shots || []}
             selectedShots={selectedShots}
             onToggleShot={toggleShotSelection}
             onConfirm={handlePartialRegen}
@@ -280,6 +282,16 @@ export function DeliveryPage() {
           variant="primary"
           isLoading={downloading}
         />
+
+        {/* Merge Approval Dialog — shows when all shots complete */}
+        {story && (
+          <MergeApprovalDialog
+            story={story}
+            isOpen={story.status === 'pending_merge'}
+            onClose={() => {}}
+            onComplete={() => refetch()}
+          />
+        )}
       </main>
     </div>
   );

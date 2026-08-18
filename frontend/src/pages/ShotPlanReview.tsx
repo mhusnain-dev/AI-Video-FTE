@@ -15,8 +15,10 @@ import { useUIStore, useNotifications } from '../store/uiStore';
 import { ShotCard } from '../components/ShotCard';
 import { StatusBadge } from '../components/ShotCard';
 import { Modal, ConfirmDialog } from '../components/Modal';
+import { MergeApprovalDialog } from '../components/MergeApprovalDialog';
 import type { Story, Shot, ShotPlanRevision } from '../types/api';
 import { clsx } from 'clsx';
+import { getUserId } from '../utils/userId';
 
 export function ShotPlanReview() {
   const { storyId } = useParams<{ storyId: string }>();
@@ -34,11 +36,11 @@ export function ShotPlanReview() {
   const approvePlan = useApproveShotPlan();
   const revisePlan = useReviseShotPlan();
 
-  const userId = localStorage.getItem('user_id') || 'demo-user';
+  const userId = getUserId();
 
   // Set current story in UI store
-  if (story?.data) {
-    setCurrentStory(story.data.id);
+  if (story) {
+    setCurrentStory(story.id);
   }
 
   const handlePresent = async () => {
@@ -91,7 +93,7 @@ export function ShotPlanReview() {
   };
 
   const handleAddShot = () => {
-    const newOrder = (story.data?.shotPlan?.length || 0);
+    const newOrder = (story?.shots?.length || 0);
     setRevisions(prev => [
       ...prev,
       {
@@ -129,7 +131,7 @@ export function ShotPlanReview() {
     );
   }
 
-  if (isError || !story?.data) {
+  if (isError || !story) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -143,14 +145,14 @@ export function ShotPlanReview() {
     );
   }
 
-  const storyData = story.data;
-  const shots = storyData.shotPlan || [];
+  const storyData = story;
+  const shots = storyData.shots || [];
   const status = storyData.status;
 
   const canPresent = status === 'draft' || status === 'planning';
   const canApprove = status === 'awaiting_approval';
   const canEdit = ['draft', 'planning', 'awaiting_approval'].includes(status);
-  const isGenerating = ['in_progress', 'generating', 'merging'].includes(status);
+  const isGenerating = ['in_progress', 'generating', 'pending_merge', 'merging'].includes(status);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -370,6 +372,14 @@ export function ShotPlanReview() {
             </div>
           </div>
         </Modal>
+
+        {/* Merge Approval Dialog — shows when all shots complete */}
+        <MergeApprovalDialog
+          story={storyData}
+          isOpen={status === 'pending_merge'}
+          onClose={() => {}}
+          onComplete={() => refetch()}
+        />
       </main>
     </div>
   );

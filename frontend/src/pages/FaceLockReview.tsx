@@ -17,6 +17,7 @@ import { StatusBadge } from '../components/ShotCard';
 import { Modal, ConfirmDialog, AlertDialog } from '../components/Modal';
 import type { Shot, FaceLockResult } from '../types/api';
 import { clsx } from 'clsx';
+import { getUserId } from '../utils/userId';
 
 export function FaceLockReview() {
   const { storyId } = useParams<{ storyId: string }>();
@@ -31,8 +32,8 @@ export function FaceLockReview() {
   const { data: story, isLoading, refetch } = useStory(storyId || '');
   const regenerateShot = useRegenerateShot();
 
-  if (story?.data) {
-    setCurrentStory(story.data.id);
+  if (story) {
+    setCurrentStory(story.id);
   }
 
   if (!storyId) return null;
@@ -45,7 +46,7 @@ export function FaceLockReview() {
     );
   }
 
-  if (!story?.data) {
+  if (!story) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -57,7 +58,7 @@ export function FaceLockReview() {
     );
   }
 
-  const storyData = story.data;
+  const storyData = story;
   const shots = storyData.shotPlan || [];
   const characterNames: string[] = shots.flatMap(s => (s.characterNames || []));
   const characters: string[] = [...new Set(characterNames)];
@@ -75,7 +76,7 @@ export function FaceLockReview() {
   const handleRetry = async (shotId: string, characterName: string) => {
     setRegenerating(shotId);
     try {
-      await regenerateShot.mutateAsync({ shotId, userId: localStorage.getItem('user_id') || 'demo-user', options: { faceLockRetry: true, characterName } });
+      await regenerateShot.mutateAsync({ shotId, userId: getUserId(), options: { faceLockRetry: true, characterName } });
       notify.success('Regeneration Started', `Face-Lock retry for ${characterName} in shot ${shotId.substring(0, 8)}`);
       refetch();
     } catch (err: any) {

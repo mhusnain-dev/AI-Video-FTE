@@ -22,6 +22,7 @@ const STORY_STATUS_STYLES: Record<StoryStatus, string> = {
   approved: 'bg-green-100 text-green-700',
   in_progress: 'bg-indigo-100 text-indigo-700',
   generating: 'bg-purple-100 text-purple-700',
+  pending_merge: 'bg-amber-100 text-amber-700',
   merging: 'bg-pink-100 text-pink-700',
   completed: 'bg-emerald-100 text-emerald-700',
   failed: 'bg-red-100 text-red-700',

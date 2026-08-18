@@ -51,10 +51,10 @@ export function ProgressDashboard() {
   });
 
   useEffect(() => {
-    if (story?.data) {
-      setCurrentStory(story.data.id);
+    if (story) {
+      setCurrentStory(story.id);
     }
-  }, [story?.data?.id, setCurrentStory]);
+  }, [story?.id, setCurrentStory]);
 
   if (!storyId) return null;
 
@@ -66,7 +66,7 @@ export function ProgressDashboard() {
     );
   }
 
-  if (isError || !story?.data) {
+  if (isError || !story) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -80,8 +80,8 @@ export function ProgressDashboard() {
     );
   }
 
-  const storyData = story.data;
-  const shots = storyData.shotPlan || [];
+  const storyData = story;
+  const shots = storyData.shots || [];
   const status = storyData.status;
 
   // Find shots needing attention
