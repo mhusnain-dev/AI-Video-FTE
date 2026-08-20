@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient, UseQueryOptions, UseMutationOptions } from '@tanstack/react-query';
 import apiClient from '../api/client';
-import type { Story, StoryBrief, CreateStoryRequest, Shot, ShotPlanRevision, CharacterReference, StateChangeEvent, DeliveryPackage } from '../types/api';
+import type { CreateStoryRequest, ShotPlanRevision } from '../types/api';
 
 // ============================================
 // Query Keys
@@ -184,7 +184,7 @@ export function useCharacters(
 ) {
   return useQuery({
     queryKey: characterKeys.list(storyId),
-    queryFn: () => apiClient.getCharacters(storyId).then(r => r.data),
+    queryFn: () => apiClient.getCharacters(storyId),
     enabled: !!storyId,
     staleTime: 10000,
     ...options,
@@ -421,7 +421,7 @@ export function useDelivery(
 }
 
 export function useDownloadUrl(
-  storyId: string,
+  _storyId: string,
   options?: UseMutationOptions<any, Error, string>
 ) {
   return useMutation({

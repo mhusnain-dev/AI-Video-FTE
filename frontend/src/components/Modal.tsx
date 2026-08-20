@@ -1,12 +1,10 @@
 import { clsx } from 'clsx';
-import { useState } from 'react';
 import {
   XMarkIcon,
   CheckCircleIcon,
   ExclamationTriangleIcon,
   InformationCircleIcon,
 } from '@heroicons/react/24/outline';
-import type { StoryStatus, ShotStatus } from '../types/api';
 
 interface ModalProps {
   isOpen: boolean;

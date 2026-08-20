@@ -246,7 +246,7 @@ async function createDispatchRecord(shot: ShotPlan, model: ModelCapabilities): P
 /**
  * Update dispatch record
  */
-async function updateDispatchRecord(
+export async function updateDispatchRecord(
   id: string,
   updates: {
     providerRequestId?: string;

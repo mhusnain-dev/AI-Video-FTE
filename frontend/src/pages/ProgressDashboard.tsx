@@ -14,7 +14,8 @@ import { useUIStore, useNotifications } from '../store/uiStore';
 import { ProgressTimeline } from '../components/ProgressTimeline';
 import { StatusBadge } from '../components/ShotCard';
 import { Modal } from '../components/Modal';
-import type { Story, Shot, AdmissionResult, FaceLockResult } from '../types/api';
+import { ChatEntryButton, ProactiveToast } from '../components';
+import type { Shot, AdmissionResult } from '../types/api';
 import { clsx } from 'clsx';
 
 const ADMISSION_STAGES = [
@@ -38,7 +39,7 @@ export function ProgressDashboard() {
   const { data: story, isLoading, isError, refetch } = useStory(storyId || '');
 
   // Real-time SSE stream
-  const { isConnected, lastEvent } = useStoryStream({
+  const { isConnected, lastEvent: _lastEvent } = useStoryStream({
     storyId: storyId || '',
     onEvent: (event) => {
       if (event.type === 'alert' && event.payload.type === 'cost_guard_pause') {
@@ -55,6 +56,16 @@ export function ProgressDashboard() {
       setCurrentStory(story.id);
     }
   }, [story?.id, setCurrentStory]);
+
+  // Auto-redirect to DeliveryPage when story completes
+  useEffect(() => {
+    if (story && story.status === 'completed') {
+      const timer = setTimeout(() => {
+        navigate(`/stories/${storyId}/delivery`);
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [story?.status, storyId, navigate]);
 
   if (!storyId) return null;
 
@@ -85,12 +96,20 @@ export function ProgressDashboard() {
   const status = storyData.status;
 
   // Find shots needing attention
-  const shotsNeedingAttention = shots.filter(s =>
-    s.status === 'failed' || s.status === 'timeout' || s.status === 'paused_cost'
+  const shotsNeedingAttention = shots.filter((s: Shot) =>
+    s.status === 'failed' || s.status === 'timeout'
   );
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Proactive Toast */}
+      <ProactiveToast
+        trigger={showCostGuardDialog ? 'cost_drift' : shotsNeedingAttention.length > 0 ? 'generation_timeout' : null}
+        storyId={storyId}
+        details={showCostGuardDialog ? { shotId: showCostGuardDialog.shotId, driftPercentage: showCostGuardDialog.details.driftPercentage } : shotsNeedingAttention.length > 0 ? { shotId: shotsNeedingAttention[0].id } : null}
+        onDismiss={() => {}}
+      />
+
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -99,10 +118,11 @@ export function ProgressDashboard() {
               <button onClick={() => navigate(`/stories/${storyId}/plan`)} className="btn-ghost p-2">
                 <ArrowLeftIcon className="w-5 h-5" />
               </button>
-              <div>
+              <div className="flex-1">
                 <h1 className="text-lg font-semibold text-gray-900">Generation Progress</h1>
                 <p className="text-sm text-gray-500">{storyData.brief?.narrative?.substring(0, 80)}...</p>
               </div>
+              <ChatEntryButton storyId={storyId} />
             </div>
 
             <div className="flex items-center gap-3">
@@ -157,22 +177,22 @@ export function ProgressDashboard() {
                 <StatRow label="Total Shots" value={shots.length} />
                 <StatRow
                   label="Completed"
-                  value={shots.filter(s => s.status === 'completed').length}
+                  value={shots.filter((s: Shot) => s.status === 'completed').length}
                   color="green"
                 />
                 <StatRow
                   label="Generating"
-                  value={shots.filter(s => ['dispatched', 'generating'].includes(s.status)).length}
+                  value={shots.filter((s: Shot) => ['dispatched', 'generating'].includes(s.status)).length}
                   color="purple"
                 />
                 <StatRow
                   label="In Admission"
-                  value={shots.filter(s => ['in_admission', 'admission_passed'].includes(s.status)).length}
+                  value={shots.filter((s: Shot) => ['in_admission', 'admission_passed'].includes(s.status)).length}
                   color="blue"
                 />
                 <StatRow
                   label="Failed"
-                  value={shots.filter(s => ['failed', 'timeout'].includes(s.status)).length}
+                  value={shots.filter((s: Shot) => ['failed', 'timeout'].includes(s.status)).length}
                   color="red"
                 />
                 {storyData.costActualUsd && (
@@ -219,7 +239,7 @@ export function ProgressDashboard() {
             {showAdmissionDetail && (
               <AdmissionDetailModal
                 shotId={showAdmissionDetail}
-                shot={shots.find(s => s.id === showAdmissionDetail)!}
+                shot={shots.find((s: Shot) => s.id === showAdmissionDetail)!}
                 onClose={() => setShowAdmissionDetail(null)}
               />
             )}
@@ -228,7 +248,7 @@ export function ProgressDashboard() {
             {showFaceLockDetail && (
               <FaceLockDetailModal
                 shotId={showFaceLockDetail}
-                shot={shots.find(s => s.id === showFaceLockDetail)!}
+                shot={shots.find((s: Shot) => s.id === showFaceLockDetail)!}
                 onClose={() => setShowFaceLockDetail(null)}
               />
             )}
@@ -264,9 +284,8 @@ function ShotDetailPanel({
   shot,
   onClose,
   onViewAdmission,
-  onViewFaceLock,
+  onViewFaceLock: _onViewFaceLock,
 }: { shot: Shot; onClose: () => void; onViewAdmission: () => void; onViewFaceLock: () => void }) {
-  const faceLockResults: FaceLockResult[] | undefined = shot.faceLockResults;
   const admission: AdmissionResult | undefined = shot.admissionResult as AdmissionResult | undefined;
 
   function getAdmissionJSX(): React.ReactNode | null {
@@ -274,41 +293,6 @@ function ShotDetailPanel({
     return (
       <AdmissionResultDisplay admission={admission} onViewAdmission={onViewAdmission} />
     );
-  }
-
-  function renderFaceLockResults(): React.ReactNode | null {
-    const results: FaceLockResult[] = faceLockResults ?? [];
-    if (results.length === 0) return null;
-    return (
-      <React.Fragment>
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="font-medium text-gray-900">Face-Lock Verification</span>
-            <button onClick={onViewFaceLock} className="btn-ghost text-xs">Details</button>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {results.map((fl) => (
-              <FaceLockBadge key={`${fl.characterName}-${fl.model}`} result={fl} />
-            ))}
-          </div>
-        </div>
-      </React.Fragment>
-    );
-  }
-
-  function renderAdmission(): React.ReactNode | null {
-    const adm: AdmissionResult | undefined = shot.admissionResult as AdmissionResult | undefined;
-    if (!adm) return null;
-    const element: JSX.Element = (
-      <div className="mb-4 p-3 bg-gray-50 rounded">
-        <div className="flex items-center justify-between mb-2">
-          <span className="font-medium text-gray-900">Admission Pipeline</span>
-          <button onClick={onViewAdmission} className="btn-ghost text-xs">Details</button>
-        </div>
-        <AdmissionPipelineMini admission={adm} />
-      </div>
-    );
-    return element;
   }
 
   return (
@@ -392,25 +376,7 @@ function AdmissionResultDisplay({ admission, onViewAdmission }: { admission: Adm
   );
 }
 
-function FaceLockBadge({ result }: { result: FaceLockResult }): React.ReactElement {
-  const passed = result.passed;
-  const score = (result.similarityScore * 100).toFixed(0);
-
-  return (
-    <span
-      className={clsx(
-        'px-2 py-1 rounded-full text-xs font-medium',
-        passed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-      )}
-    >
-      {result.characterName}: {score}% {passed ? '✓' : '✗'}
-      {result.retryCount > 0 && ` (retry ${result.retryCount})`}
-      {result.autoRegenerated && ' 🔄'}
-    </span>
-  );
-}
-
-function AdmissionDetailModal({ shotId, shot, onClose }: { shotId: string; shot: Shot; onClose: () => void }) {
+function AdmissionDetailModal({ shotId: _shotId, shot, onClose }: { shotId: string; shot: Shot; onClose: () => void }) {
   const admission = shot.admissionResult;
 
   if (!admission) return null;
@@ -458,7 +424,7 @@ function AdmissionDetailModal({ shotId, shot, onClose }: { shotId: string; shot:
   );
 }
 
-function FaceLockDetailModal({ shotId, shot, onClose }: { shotId: string; shot: Shot; onClose: () => void }) {
+function FaceLockDetailModal({ shotId: _shotId, shot, onClose }: { shotId: string; shot: Shot; onClose: () => void }) {
   const results = shot.faceLockResults || [];
 
   if (!results.length) return null;

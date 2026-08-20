@@ -94,7 +94,7 @@ export async function approveUser(adminId: string, userId: string, durationHours
  */
 export async function rejectUser(adminId: string, userId: string): Promise<void> {
   const user = await getUserById(userId);
-  await query('DELETE FROM users WHERE id = $1', [userId]);
+  await query("UPDATE users SET status = 'revoked', access_expires_at = NULL WHERE id = $1", [userId]);
   await logAudit(adminId, 'reject', userId, { email: user?.email });
 }
 
@@ -125,8 +125,8 @@ export async function extendAccess(adminId: string, userId: string, durationHour
  */
 export async function deleteUser(adminId: string, userId: string): Promise<void> {
   const user = await getUserById(userId);
-  await query('DELETE FROM users WHERE id = $1', [userId]);
   await logAudit(adminId, 'delete', userId, { email: user?.email });
+  await query('DELETE FROM users WHERE id = $1', [userId]);
 }
 
 /**

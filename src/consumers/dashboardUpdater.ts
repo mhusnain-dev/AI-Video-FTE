@@ -296,7 +296,6 @@ export class DashboardUpdaterConsumer extends BaseConsumer {
         await refresh();
       } catch (error) {
         // Non-fatal: dashboard views are observational, not critical path
-        console.warn('Dashboard view refresh skipped:', (error as Error).message?.slice(0, 120));
       }
     }
   }
@@ -315,7 +314,7 @@ export class DashboardUpdaterConsumer extends BaseConsumer {
       `);
       await query(`REFRESH MATERIALIZED VIEW story_state_summary`);
     } catch (error) {
-      console.warn('story_state_summary refresh skipped:', (error as Error).message?.slice(0, 100));
+      // Silent skip — view may not exist yet
     }
   }
 
@@ -325,16 +324,16 @@ export class DashboardUpdaterConsumer extends BaseConsumer {
         CREATE MATERIALIZED VIEW IF NOT EXISTS shot_state_summary AS
         SELECT
           s.status,
-          s.model_id,
+          s.selected_model_id as model_id,
           COUNT(*) as shot_count,
           AVG(EXTRACT(EPOCH FROM (s.generation_completed_at - s.created_at))) as avg_duration_seconds
         FROM shots s
         WHERE s.created_at > NOW() - INTERVAL '24 hours'
-        GROUP BY s.status, s.model_id
+        GROUP BY s.status, s.selected_model_id
       `);
       await query(`REFRESH MATERIALIZED VIEW shot_state_summary`);
     } catch (error) {
-      console.warn('shot_state_summary refresh skipped:', (error as Error).message?.slice(0, 100));
+      // Silent skip — view may not exist yet or column mismatch on cold start
     }
   }
 

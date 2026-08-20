@@ -262,13 +262,31 @@ export async function rotateVaultTransitKey(): Promise<void> {
 }
 
 /**
- * Initialize Vault Transit key if not exists
+ * Initialize Vault Transit engine and key if not exists.
+ * Safe to call repeatedly — idempotent.
  */
 export async function initializeVaultKey(): Promise<void> {
   const client = getVaultClient();
+  const vaultAddr = config.vault.address;
+  const vaultToken = config.vault.token;
+
+  // 1. Ensure transit engine is mounted
+  try {
+    await client.read('sys/mounts/transit');
+    console.log('[Vault] Transit engine already mounted');
+  } catch {
+    await fetch(`${vaultAddr}/v1/sys/mounts/transit`, {
+      method: 'POST',
+      headers: { 'X-Vault-Token': vaultToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'transit', description: 'Transit encryption engine for biometric data' }),
+    });
+    console.log('[Vault] Mounted transit engine');
+  }
+
+  // 2. Ensure transit key exists
   try {
     await client.read(`transit/keys/${config.vault.transitKeyName}`);
-    console.log(`Vault Transit key ${config.vault.transitKeyName} already exists`);
+    console.log(`[Vault] Transit key ${config.vault.transitKeyName} already exists`);
   } catch {
     await client.write(`transit/keys/${config.vault.transitKeyName}`, {
       type: 'aes256-gcm96',
@@ -276,6 +294,6 @@ export async function initializeVaultKey(): Promise<void> {
       exportable: false,
       allow_plaintext_backup: false,
     });
-    console.log(`Created Vault Transit key ${config.vault.transitKeyName}`);
+    console.log(`[Vault] Created transit key ${config.vault.transitKeyName}`);
   }
 }

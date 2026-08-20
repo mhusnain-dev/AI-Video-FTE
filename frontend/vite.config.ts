@@ -1,6 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+const isDocker = process.env.DOCKER === 'true';
+const apiTarget = isDocker ? 'http://172.21.0.7:3000' : 'http://localhost:3000';
+const frontendOrigin = isDocker ? 'http://fte-frontend:5173' : 'http://localhost:5173';
+
 export default defineConfig({
   plugins: [react()],
   resolve: {},
@@ -8,25 +12,35 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/auth': {
-        target: 'http://localhost:3000',
-        changeOrigin: true,
-      },
-      '/admin': {
-        target: 'http://localhost:3000',
-        changeOrigin: true,
-      },
-      '/api': {
-        target: 'http://localhost:3000',
+        target: apiTarget,
         changeOrigin: true,
         configure: (proxy, _options) => {
           proxy.on('proxyReq', (proxyReq, req, _res) => {
             if (req.method === 'OPTIONS') {
-              proxyReq.setHeader('Origin', 'http://localhost:5173');
+              proxyReq.setHeader('Origin', frontendOrigin);
             }
           });
           proxy.on('proxyRes', (proxyRes, req, _res) => {
             if (req.method === 'OPTIONS') {
-              proxyRes.headers['access-control-allow-origin'] = 'http://localhost:5173';
+              proxyRes.headers['access-control-allow-origin'] = frontendOrigin;
+              proxyRes.headers['access-control-allow-methods'] = 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS';
+              proxyRes.headers['access-control-allow-headers'] = 'Content-Type,Authorization';
+            }
+          });
+        },
+      },
+      '/api': {
+        target: apiTarget,
+        changeOrigin: true,
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            if (req.method === 'OPTIONS') {
+              proxyReq.setHeader('Origin', frontendOrigin);
+            }
+          });
+          proxy.on('proxyRes', (proxyRes, req, _res) => {
+            if (req.method === 'OPTIONS') {
+              proxyRes.headers['access-control-allow-origin'] = frontendOrigin;
               proxyRes.headers['access-control-allow-methods'] = 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS';
               proxyRes.headers['access-control-allow-headers'] = 'Content-Type,Authorization';
             }
@@ -34,17 +48,17 @@ export default defineConfig({
         },
       },
       '/health': {
-        target: 'http://localhost:3000',
+        target: apiTarget,
         changeOrigin: true,
         configure: (proxy, _options) => {
           proxy.on('proxyReq', (proxyReq, req, _res) => {
             if (req.method === 'OPTIONS') {
-              proxyReq.setHeader('Origin', 'http://localhost:5173');
+              proxyReq.setHeader('Origin', frontendOrigin);
             }
           });
           proxy.on('proxyRes', (proxyRes, req, _res) => {
             if (req.method === 'OPTIONS') {
-              proxyRes.headers['access-control-allow-origin'] = 'http://localhost:5173';
+              proxyRes.headers['access-control-allow-origin'] = frontendOrigin;
               proxyRes.headers['access-control-allow-methods'] = 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS';
               proxyRes.headers['access-control-allow-headers'] = 'Content-Type,Authorization';
             }
@@ -52,7 +66,7 @@ export default defineConfig({
         },
       },
       '/metrics': {
-        target: 'http://localhost:9090',
+        target: apiTarget,
         changeOrigin: true,
       },
     },

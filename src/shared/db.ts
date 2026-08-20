@@ -34,7 +34,9 @@ export async function query<T extends QueryResultRow = any>(text: string, params
   const start = Date.now();
   const pool = getPool();
   try {
+    console.log(`[DB DEBUG] Query: ${text.substring(0, 100)}...`, params);
     const result = await pool.query<T>(text, params);
+    console.log(`[DB DEBUG] Query returned ${result.rows.length} rows`);
     return result;
   } finally {
     const duration = Date.now() - start;

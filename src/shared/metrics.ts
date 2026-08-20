@@ -51,7 +51,7 @@ export function createCounter(
   labelNames: string[] = []
 ): Counter {
   const registry = getMetricsRegistry();
-  const existing = registry.getSingleMetric(name);
+  const existing = registry.getSingleMetric(`ai_video_${name}`);
   if (existing && existing instanceof Counter) {
     return existing;
   }
@@ -67,7 +67,7 @@ export function createGauge(
   labelNames: string[] = []
 ): Gauge {
   const registry = getMetricsRegistry();
-  const existing = registry.getSingleMetric(name);
+  const existing = registry.getSingleMetric(`ai_video_${name}`);
   if (existing && existing instanceof Gauge) {
     return existing;
   }
@@ -84,7 +84,7 @@ export function createHistogram(
   buckets?: number[]
 ): Histogram {
   const registry = getMetricsRegistry();
-  const existing = registry.getSingleMetric(name);
+  const existing = registry.getSingleMetric(`ai_video_${name}`);
   if (existing && existing instanceof Histogram) {
     return existing;
   }

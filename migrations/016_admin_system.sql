@@ -5,7 +5,7 @@
 ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'user';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'pending';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS access_expires_at TIMESTAMP WITH TIME ZONE;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS approved_by UUID REFERENCES users(id);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS approved_by UUID REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP WITH TIME ZONE;
 
 -- Indexes for admin queries
@@ -30,9 +30,9 @@ CREATE INDEX IF NOT EXISTS idx_password_resets_expires ON password_resets (expir
 -- 3. Admin audit log table
 CREATE TABLE IF NOT EXISTS admin_audit_log (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  admin_id UUID NOT NULL REFERENCES users(id),
+  admin_id UUID NOT NULL REFERENCES users(id) ON DELETE SET NULL,
   action VARCHAR(50) NOT NULL,
-  target_user_id UUID REFERENCES users(id),
+  target_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
   details JSONB DEFAULT '{}',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

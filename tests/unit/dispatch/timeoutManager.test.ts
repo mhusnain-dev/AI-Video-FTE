@@ -29,6 +29,18 @@ jest.mock('../../../src/shared/events', () => ({
   emitShotStateChange: jest.fn(),
 }));
 
+const mockConfig: any = {
+  dispatch: {
+    defaultTimeouts: {
+      'veo3-low': 120,
+    },
+  },
+};
+
+jest.mock('../../../src/shared/config', () => ({
+  get config() { return mockConfig; },
+}));
+
 const mockQuery = require('../../../src/shared/db').query;
 const { getAdapter } = require('../../../src/router/modelAdapter');
 const { dispatchWithFallback } = require('../../../src/dispatch/shotDispatcher');
@@ -123,6 +135,26 @@ describe('Timeout Manager', () => {
       const timeout = getEffectiveTimeout('unknown-model');
       expect(timeout).toBe(120);
     });
+
+    test('returns 120s when defaultTimeouts is undefined', () => {
+      const orig = mockConfig.dispatch;
+      mockConfig.dispatch = { defaultTimeouts: undefined };
+      try {
+        expect(getEffectiveTimeout('unknown-model')).toBe(120);
+      } finally {
+        mockConfig.dispatch = orig;
+      }
+    });
+
+    test('returns 120s when dispatch config is undefined', () => {
+      const orig = mockConfig.dispatch;
+      mockConfig.dispatch = undefined;
+      try {
+        expect(getEffectiveTimeout('unknown-model')).toBe(120);
+      } finally {
+        mockConfig.dispatch = orig;
+      }
+    });
   });
 
   describe('startDispatchTimeout', () => {
@@ -170,7 +202,7 @@ describe('Timeout Manager', () => {
       expect(getActiveTimeoutCount()).toBe(1);
     });
 
-    test('does not start timer if fallback already in progress', async () => {
+    test('does not start timer if already timed out (status changed)', async () => {
       const dispatchRecord: DispatchRecord = {
         id: 'dispatch-1',
         shotId: 'shot-1',
@@ -183,12 +215,15 @@ describe('Timeout Manager', () => {
         fallbackFromDispatchId: undefined,
       };
 
-      // Start first timer
-      await startDispatchTimeout(dispatchRecord, mockShot, mockPromptOutput, mockPrimaryModel, [mockFallbackModel]);
-      // Try to start second
-      await startDispatchTimeout(dispatchRecord, mockShot, mockPromptOutput, mockPrimaryModel, [mockFallbackModel]);
+      // First call: start + fire timer
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ status: 'timeout', completed_at: new Date() }] });
 
-      expect(getActiveTimeoutCount()).toBe(1);
+      await startDispatchTimeout(dispatchRecord, mockShot, mockPromptOutput, mockPrimaryModel, [mockFallbackModel], { overrideTimeoutSeconds: 1 });
+      await jest.advanceTimersByTimeAsync(1500);
+
+      // Timer should be cleaned up
+      expect(getActiveTimeoutCount()).toBe(0);
     });
   });
 
@@ -221,7 +256,7 @@ describe('Timeout Manager', () => {
   });
 
   describe('timeout firing behavior', () => {
-    test('cancels provider request and triggers fallback when timeout fires', async () => {
+    test('marks shot as failed on timeout without fallback (credit protection)', async () => {
       const dispatchRecord: DispatchRecord = {
         id: 'dispatch-1',
         shotId: 'shot-1',
@@ -247,13 +282,13 @@ describe('Timeout Manager', () => {
         mockPromptOutput,
         mockPrimaryModel,
         [mockFallbackModel],
-        { overrideTimeoutSeconds: 1 } // 1 second timeout
+        { overrideTimeoutSeconds: 1 }
       );
 
       // Wait for timeout to fire
       await jest.advanceTimersByTimeAsync(1500);
 
-      // Verify provider cancel was called
+      // Verify provider cancel was attempted
       const adapter = getAdapter('veo3-low');
       expect(adapter.cancel).toHaveBeenCalledWith('provider-req-123');
 
@@ -263,14 +298,14 @@ describe('Timeout Manager', () => {
         ['dispatch-1', 'Generation timeout after 1s']
       );
 
-      // Verify shot status updated
+      // Verify shot status updated to failed
       expect(mockQuery).toHaveBeenCalledWith(
         expect.stringContaining("UPDATE shots SET status = 'failed'"),
         ['shot-1', expect.stringContaining('timed out after 1s')]
       );
 
-      // Verify fallback was triggered
-      expect(dispatchWithFallback).toHaveBeenCalled();
+      // Verify NO fallback was triggered (credit protection)
+      expect(dispatchWithFallback).not.toHaveBeenCalled();
 
       // Verify state change event emitted
       expect(emitShotStateChange).toHaveBeenCalledWith(
@@ -284,6 +319,49 @@ describe('Timeout Manager', () => {
           providerRequestId: 'provider-req-123',
         })
       );
+    });
+
+    test('handles adapter.cancel failure gracefully', async () => {
+      const dispatchRecord: DispatchRecord = {
+        id: 'dispatch-1',
+        shotId: 'shot-1',
+        modelId: 'veo3-low',
+        providerRequestId: 'provider-req-123',
+        status: 'dispatched',
+        dispatchedAt: new Date(),
+        completedAt: undefined,
+        error: undefined,
+        fallbackFromDispatchId: undefined,
+      };
+
+      const cancelError = new Error('Cancel failed');
+      getAdapter.mockReturnValue({
+        modelId: 'veo3-low',
+        provider: 'google',
+        cancel: jest.fn().mockRejectedValue(cancelError),
+      });
+
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ status: 'dispatched', completed_at: null }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] });
+
+      await startDispatchTimeout(
+        dispatchRecord,
+        mockShot,
+        mockPromptOutput,
+        mockPrimaryModel,
+        [mockFallbackModel],
+        { overrideTimeoutSeconds: 1 }
+      );
+
+      await jest.advanceTimersByTimeAsync(1500);
+
+      // Verify cancel was attempted but failure was handled gracefully
+      const adapter = getAdapter('veo3-low');
+      expect(adapter.cancel).toHaveBeenCalledWith('provider-req-123');
+      // No fallback should be triggered (credit protection)
+      expect(dispatchWithFallback).not.toHaveBeenCalled();
     });
 
     test('does NOT trigger fallback if dispatch already completed by webhook', async () => {
@@ -354,6 +432,72 @@ describe('Timeout Manager', () => {
       );
 
       // Wait for timeout to fire
+      await jest.advanceTimersByTimeAsync(1500);
+
+      const adapter = getAdapter('veo3-low');
+      expect(adapter.cancel).not.toHaveBeenCalled();
+      expect(dispatchWithFallback).not.toHaveBeenCalled();
+    });
+
+    test('does NOT trigger fallback when triggerFallback is false', async () => {
+      const dispatchRecord: DispatchRecord = {
+        id: 'dispatch-1',
+        shotId: 'shot-1',
+        modelId: 'veo3-low',
+        providerRequestId: 'provider-req-123',
+        status: 'dispatched',
+        dispatchedAt: new Date(),
+        completedAt: undefined,
+        error: undefined,
+        fallbackFromDispatchId: undefined,
+      };
+
+      mockQuery.mockResolvedValueOnce({ rows: [{ status: 'dispatched', completed_at: null }] });
+
+      await startDispatchTimeout(
+        dispatchRecord,
+        mockShot,
+        mockPromptOutput,
+        mockPrimaryModel,
+        [mockFallbackModel],
+        { overrideTimeoutSeconds: 1, triggerFallback: false }
+      );
+
+      await jest.advanceTimersByTimeAsync(1500);
+
+      // Timeout metric should still be recorded
+      expect(mockQuery).not.toHaveBeenCalledWith(
+        expect.stringContaining("UPDATE dispatch_records SET status = 'timeout'"),
+        expect.anything()
+      );
+      expect(dispatchWithFallback).not.toHaveBeenCalled();
+    });
+
+    test('does NOT trigger fallback if dispatch record was deleted', async () => {
+      const dispatchRecord: DispatchRecord = {
+        id: 'dispatch-1',
+        shotId: 'shot-1',
+        modelId: 'veo3-low',
+        providerRequestId: 'provider-req-123',
+        status: 'dispatched',
+        dispatchedAt: new Date(),
+        completedAt: undefined,
+        error: undefined,
+        fallbackFromDispatchId: undefined,
+      };
+
+      // Mock that dispatch record no longer exists
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      await startDispatchTimeout(
+        dispatchRecord,
+        mockShot,
+        mockPromptOutput,
+        mockPrimaryModel,
+        [mockFallbackModel],
+        { overrideTimeoutSeconds: 1 }
+      );
+
       await jest.advanceTimersByTimeAsync(1500);
 
       const adapter = getAdapter('veo3-low');

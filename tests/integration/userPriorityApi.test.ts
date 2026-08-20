@@ -282,6 +282,17 @@ describe('Model Priority API - /api/users/:userId/model-priority', () => {
       expect(response.body.error).toBe('Failed to set user priority');
     });
 
+    test('returns 500 when non-Error value is thrown during set', async () => {
+      (setUserModelPriority as jest.Mock).mockRejectedValue('string error');
+
+      const response = await request(app)
+        .patch(`/api/users/${validUserId}/model-priority`)
+        .send({ priorityList: ['veo3-low'], useSystemDefault: false })
+        .expect(500);
+
+      expect(response.body.error).toBe('Failed to set user priority');
+    });
+
     test('returns 500 on database error during delete (useSystemDefault=true)', async () => {
       mockQuery.mockRejectedValue(new Error('DB error'));
 

@@ -81,28 +81,106 @@ export class KieAdapter extends BaseModelAdapter {
   readonly provider = 'kie';
   private config: KieConfig;
   private httpClient: ReturnType<typeof axios.create>;
+  private cachedCredits: { amount: number; checkedAt: number } | null = null;
 
   constructor(modelId: string, config: KieConfig) {
     super();
     this.modelId = modelId;
     this.config = config;
-    this.httpClient = axios.create({
+    this.httpClient = this.createHttpClient(config.apiKey);
+  }
+
+  private createHttpClient(apiKey: string): ReturnType<typeof axios.create> {
+    return axios.create({
       baseURL: KIE_API_BASE,
       headers: {
-        'Authorization': `Bearer ${config.apiKey}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       timeout: 300000,
     });
   }
 
+  /**
+   * Update the API key and recreate httpClient.
+   * Call this when the API key is rotated.
+   */
+  updateApiKey(newApiKey: string): void {
+    this.config.apiKey = newApiKey;
+    this.httpClient = this.createHttpClient(newApiKey);
+    this.invalidateCreditCache();
+    console.log(`[KIE DEBUG] API key updated for ${this.modelId}`);
+  }
+
+  /**
+   * Invalidate the credit cache to force a fresh check on next call.
+   */
+  invalidateCreditCache(): void {
+    this.cachedCredits = null;
+    console.log(`[KIE DEBUG] Credit cache invalidated for ${this.modelId}`);
+  }
+
+  /**
+   * Check KIE credit balance. Cached for 60s to avoid unnecessary API calls.
+   * Returns null if check fails (don't block dispatch on check failure).
+   */
+  async checkCredits(): Promise<number | null> {
+    try {
+      // Reuse cached result if <60s old
+      if (this.cachedCredits && (Date.now() - this.cachedCredits.checkedAt) < 60000) {
+        console.log(`[KIE DEBUG] Using cached credits: ${this.cachedCredits.amount}`);
+        return this.cachedCredits.amount;
+      }
+      console.log(`[KIE DEBUG] Checking credits via API for ${this.modelId}...`);
+      const response = await this.httpClient.get<{ code: number; data: number }>('/api/v1/chat/credit');
+      console.log(`[KIE DEBUG] Credit check response:`, response.data);
+      if (response.data.code === 200) {
+        this.cachedCredits = { amount: response.data.data, checkedAt: Date.now() };
+        console.log(`[KIE DEBUG] Credits updated: ${response.data.data}`);
+        return response.data.data;
+      }
+      console.warn(`[KIE DEBUG] Credit check returned non-200: ${response.data.code}`);
+      return null;
+    } catch (error: any) {
+      console.error(`[KIE DEBUG] Credit check failed:`, error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Check if there are enough credits for one shot.
+   * KIE charges ~60 credits per 8s video on veo3_fast.
+   */
+  async hasEnoughCreditsForOneShot(forceFreshCheck = false): Promise<boolean> {
+    const credits = forceFreshCheck ? await this.checkCreditsFresh() : await this.checkCredits();
+    if (credits === null) return true; // Don't block on check failure
+    return credits >= 10; // Minimum threshold — even lite needs a few credits
+  }
+
+  /**
+   * Force a fresh credit check, bypassing cache.
+   */
+  async checkCreditsFresh(): Promise<number | null> {
+    this.invalidateCreditCache();
+    return this.checkCredits();
+  }
+
   protected async makeDispatchRequest(prompt: CompiledPrompt): Promise<{ providerRequestId: string; estimatedCompletionMs?: number }> {
+    // Credit guard — fail fast before burning API call
+    const hasCredits = await this.hasEnoughCreditsForOneShot();
+    if (!hasCredits) {
+      throw new Error('Kie.ai credits insufficient — dispatch blocked to prevent credit waste');
+    }
+
     const requestBody = this.buildKieRequest(prompt);
+    console.log('[KIE DEBUG] Dispatch request:', JSON.stringify(requestBody, null, 2));
 
     const response = await this.httpClient.post<KieDispatchResponse>(
       '/api/v1/veo/generate',
       requestBody
     );
+
+    console.log('[KIE DEBUG] Dispatch response:', JSON.stringify(response.data, null, 2));
 
     if (response.data.code !== 200) {
       throw new Error(`Kie.ai generation failed: ${response.data.msg}`);
@@ -143,12 +221,14 @@ export class KieAdapter extends BaseModelAdapter {
           modelId: this.modelId,
           providerMetadata: {
             taskId: providerRequestId,
-            resolution: data.response.resolution,
             fallbackFlag: data.fallbackFlag,
-            originUrls: data.response.originUrls,
-            fullResultUrls: data.response.fullResultUrls,
+            info: {
+              resultUrls: data.response.resultUrls,
+              originUrls: data.response.originUrls,
+              resolution: data.response.resolution,
+            },
           },
-          nativeAudioUrl: undefined, // Kie.ai includes audio in video by default
+          nativeAudioUrl: undefined,
         },
       };
     }
@@ -205,8 +285,8 @@ export class KieAdapter extends BaseModelAdapter {
   }
 
   getDefaultTimeoutSeconds(): number {
-    // Kie.ai typical generation time: 2-5 minutes
-    return 300;
+    // Kie.ai typical generation time: 2-5 minutes, allow 10 for safety
+    return 600;
   }
 
   getCostPerSecond(): number {

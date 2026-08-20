@@ -45,3 +45,8 @@ temp/
 # Vault
 .vault-tokendata/
 frontend/test-results/
+
+# Local/generated project artifacts
+data/
+output/
+errors_found_browser console/

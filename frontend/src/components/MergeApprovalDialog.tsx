@@ -8,7 +8,6 @@ import { Modal, ConfirmDialog } from './Modal';
 import { useNotifications } from '../store/uiStore';
 import { useMergeStory } from '../hooks/useStories';
 import { apiClient } from '../api/client';
-import { getUserId } from '../utils/userId';
 import type { Story } from '../types/api';
 
 interface MergeApprovalDialogProps {

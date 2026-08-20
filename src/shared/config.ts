@@ -148,10 +148,10 @@ function getDefaults(): AppConfig {
 
     dispatch: {
       defaultTimeouts: {
-        'kie-veo3-fast': 120,
-        'kie-veo3-quality': 180,
-        'kie-veo3-lite': 120,
-        'runway-gen3': 180,
+        'kie-veo3-fast': 600,
+        'kie-veo3-quality': 600,
+        'kie-veo3-lite': 600,
+        'runway-gen3': 300,
       },
       watchdogPollIntervalMs: 30000,
       watchdogMaxWaitMs: 600000, // 10 minutes
@@ -177,6 +177,7 @@ function getDefaults(): AppConfig {
       ffmpegPath: 'ffmpeg',
       supportedFormats: ['mp4'],
       maxMergeTimeMs: 300000,
+      outputDir: process.env.MERGER_OUTPUT_DIR || '/tmp',
     },
 
     observability: {
@@ -269,6 +270,10 @@ function getEnvOverrides(): Partial<AppConfig> {
   if (llmKey) {
     overrides.llmApiKey = llmKey;
   }
+  const nvidiaKey = getSecret('NVIDIA_NIM_API_KEY_FILE', 'nvidia_nim_key', 'NVIDIA_NIM_API_KEY');
+  if (nvidiaKey) {
+    overrides.nvidiaNimApiKey = nvidiaKey;
+  }
 
   // Admin email
   if (process.env.ADMIN_EMAIL) {
@@ -307,7 +312,6 @@ function mergeConfig(
 }
 
 function deepMerge(target: any, source: any): any {
-  if (!source) return target;
   const result = { ...target };
   for (const key of Object.keys(source)) {
     if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {

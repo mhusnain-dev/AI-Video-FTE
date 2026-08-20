@@ -5,7 +5,7 @@ services:
     image: pgvector/pgvector:0.8.6-pg16
     container_name: fte-postgres
     environment:
-      POSTGRES_DB: ai_video_fte
+      POSTGRES_DB: ai_video_fte_dev
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
@@ -14,7 +14,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d ai_video_fte"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ai_video_fte_dev"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -65,7 +65,7 @@ services:
       CONFIG_DIR: /app/config
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      POSTGRES_DB: ai_video_fte
+      POSTGRES_DB: ai_video_fte_dev
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       REDIS_HOST: redis
@@ -82,6 +82,7 @@ services:
       - ./package.json:/app/package.json
       - ./tsconfig.json:/app/tsconfig.json
       - ./migrations:/app/migrations
+      - ./secrets:/app/secrets
     depends_on:
       postgres:
         condition: service_healthy
@@ -100,6 +101,7 @@ services:
     environment:
       NODE_ENV: development
       VITE_API_URL: http://localhost:3001
+      DOCKER: 'true'
     ports:
       - "5174:5173"
     volumes:

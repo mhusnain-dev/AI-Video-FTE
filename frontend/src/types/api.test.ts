@@ -4,8 +4,6 @@ import type {
   ShotStatus,
   StoryBrief,
   TransitionConfig,
-  AdmissionResult,
-  FaceLockResult,
   PaginatedResponse,
 } from './api';
 

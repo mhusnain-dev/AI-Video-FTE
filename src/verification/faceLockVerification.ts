@@ -282,18 +282,6 @@ export async function verifyCharacterInShot(
   const timestamps = getVerificationTimestamps(durationSeconds);
   const frameResult = await extractFramesFromVideo(videoUrl, timestamps, shotId);
 
-  if (frameResult.frames.length === 0) {
-    return {
-      characterName: character.name,
-      shotId,
-      similarity: 0,
-      threshold,
-      passed: false,
-      retryCount,
-      modelId,
-    };
-  }
-
   // Compute embeddings for each frame and compare
   let maxSimilarity = 0;
 
@@ -396,8 +384,6 @@ export async function getShotVerificationResults(shotId: string): Promise<FaceLo
  * Compute cosine similarity between two vectors
  */
 function cosineSimilarity(a: number[], b: number[]): number {
-  if (a.length !== b.length) return 0;
-
   let dotProduct = 0;
   let normA = 0;
   let normB = 0;
@@ -522,8 +508,6 @@ export async function generateCrossShotConsistencyReport(
   for (const characterName of characterNames) {
     const charVerifications = verificationsResult.rows.filter(r => r.character_name === characterName);
 
-    if (charVerifications.length === 0) continue;
-
     const shots: CharacterShotConsistency[] = charVerifications.map(v => ({
       shotId: v.shot_id,
       shotOrder: v.shot_order,
@@ -534,11 +518,9 @@ export async function generateCrossShotConsistencyReport(
     }));
 
     const similarities = shots.map(s => s.similarity);
-    const avgSimilarity = similarities.length > 0
-      ? similarities.reduce((sum, s) => sum + s, 0) / similarities.length
-      : 0;
-    const minSimilarity = similarities.length > 0 ? Math.min(...similarities) : 0;
-    const maxSimilarity = similarities.length > 0 ? Math.max(...similarities) : 0;
+    const avgSimilarity = similarities.reduce((sum, s) => sum + s, 0) / similarities.length;
+    const minSimilarity = Math.min(...similarities);
+    const maxSimilarity = Math.max(...similarities);
     const threshold = charVerifications[0].threshold;
 
     // Drift detected if similarity varies significantly (>0.15 range)

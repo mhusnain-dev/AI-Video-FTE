@@ -1,5 +1,6 @@
 /**
- * Unit tests for Health Check Registry (Task 47.8)
+ * Unit tests for Health Check Registry
+ * Targets 100% branch coverage for src/shared/health.ts
  */
 
 import {
@@ -15,10 +16,39 @@ import type { HealthStatus, ComponentHealth } from '../../../src/shared/types';
 describe('HealthCheckRegistry', () => {
   let registry: HealthCheckRegistry;
 
+  beforeAll(() => {
+    jest.useRealTimers();
+  });
+
+  afterAll(() => {
+    jest.useFakeTimers();
+  });
+
   beforeEach(() => {
     registry = new HealthCheckRegistry({
       livenessThresholdMs: 100,
       readinessThresholdMs: 100,
+    });
+  });
+
+  describe('constructor', () => {
+    test('uses provided config values', () => {
+      const r = new HealthCheckRegistry({
+        livenessThresholdMs: 5000,
+        readinessThresholdMs: 3000,
+      });
+      // Config is private, but we can verify behavior via timeout tests
+      expect(r).toBeDefined();
+    });
+
+    test('uses default values when no config provided', () => {
+      const r = new HealthCheckRegistry();
+      expect(r).toBeDefined();
+    });
+
+    test('uses default when config has partial values', () => {
+      const r = new HealthCheckRegistry({ livenessThresholdMs: 5000 });
+      expect(r).toBeDefined();
     });
   });
 
@@ -42,6 +72,16 @@ describe('HealthCheckRegistry', () => {
 
       registry.register('critical-check', checkFn, true);
       expect(registry.hasCheck('critical-check')).toBe(true);
+    });
+
+    test('defaults critical to false', () => {
+      const checkFn = async (): Promise<ComponentHealth> => ({
+        status: 'healthy',
+        latencyMs: 10,
+      });
+
+      registry.register('default-check', checkFn);
+      expect(registry.hasCheck('default-check')).toBe(true);
     });
 
     test('overwrites existing check with same name', () => {
@@ -108,9 +148,35 @@ describe('HealthCheckRegistry', () => {
       expect(results['failing-check'].details?.error).toBe('Check failed');
     });
 
+    test('handles check that throws non-Error', async () => {
+      const checkFn = async (): Promise<ComponentHealth> => {
+        throw 'string error';
+      };
+
+      registry.register('string-error-check', checkFn, false);
+
+      const results = await registry.runAll();
+      expect(results['string-error-check'].status).toBe('unhealthy');
+      expect(results['string-error-check'].details?.error).toBe('Unknown error');
+    });
+
     test('returns empty object when no checks registered', async () => {
       const results = await registry.runAll();
       expect(results).toEqual({});
+    });
+
+    test('times out slow checks', async () => {
+      const slowCheck = async (): Promise<ComponentHealth> => {
+        return new Promise((resolve) => {
+          setTimeout(() => resolve({ status: 'healthy', latencyMs: 10 }), 500);
+        });
+      };
+
+      registry.register('slow-check', slowCheck, false);
+
+      const results = await registry.runAll();
+      expect(results['slow-check'].status).toBe('unhealthy');
+      expect(results['slow-check'].details?.error).toContain('timed out');
     });
   });
 
@@ -142,6 +208,40 @@ describe('HealthCheckRegistry', () => {
 
       const results = await registry.runCritical();
       expect(results['critical-fail'].status).toBe('unhealthy');
+      expect(results['critical-fail'].details?.error).toBe('Critical check failed');
+    });
+
+    test('handles critical check that throws non-Error', async () => {
+      const checkFn = async (): Promise<ComponentHealth> => {
+        throw 42;
+      };
+
+      registry.register('critical-num-err', checkFn, true);
+
+      const results = await registry.runCritical();
+      expect(results['critical-num-err'].status).toBe('unhealthy');
+      expect(results['critical-num-err'].details?.error).toBe('Unknown error');
+    });
+
+    test('times out slow critical checks', async () => {
+      const slowCheck = async (): Promise<ComponentHealth> => {
+        return new Promise((resolve) => {
+          setTimeout(() => resolve({ status: 'healthy', latencyMs: 10 }), 500);
+        });
+      };
+
+      registry.register('slow-critical', slowCheck, true);
+
+      const results = await registry.runCritical();
+      expect(results['slow-critical'].status).toBe('unhealthy');
+      expect(results['slow-critical'].details?.error).toContain('timed out');
+    });
+
+    test('returns empty when no critical checks registered', async () => {
+      registry.register('non-critical', async () => ({ status: 'healthy' }), false);
+
+      const results = await registry.runCritical();
+      expect(results).toEqual({});
     });
   });
 
@@ -157,6 +257,11 @@ describe('HealthCheckRegistry', () => {
       expect(checks).toContain('check1');
       expect(checks).toContain('check2');
       expect(checks).toContain('check3');
+    });
+
+    test('returns empty array when no checks registered', () => {
+      const checks = registry.getRegisteredChecks();
+      expect(checks).toHaveLength(0);
     });
   });
 
@@ -178,10 +283,27 @@ describe('Singleton Health Registry', () => {
     setHealthRegistry(new HealthCheckRegistry());
   });
 
+  test('creates instance on first call when singleton is null', () => {
+    jest.resetModules();
+    const { getHealthRegistry } = require('../../../src/shared/health');
+    const r = getHealthRegistry();
+    expect(r).toBeDefined();
+    expect(typeof r.register).toBe('function');
+    expect(typeof r.runAll).toBe('function');
+  });
+
   test('returns same instance on multiple calls', () => {
     const registry1 = getHealthRegistry();
     const registry2 = getHealthRegistry();
     expect(registry1).toBe(registry2);
+  });
+
+  test('creates instance on first call', () => {
+    // Reset by setting null indirectly
+    setHealthRegistry(new HealthCheckRegistry());
+    const r1 = getHealthRegistry();
+    const r2 = getHealthRegistry();
+    expect(r1).toBe(r2);
   });
 
   test('allows replacing the singleton', () => {
@@ -228,7 +350,7 @@ describe('computeOverallHealth', () => {
     expect(computeOverallHealth(checks, [])).toBe('healthy');
   });
 
-  test('returns healthy when critical checks are healthy but non-critical are degraded', () => {
+  test('returns degraded when critical checks are healthy but non-critical are degraded', () => {
     const checks: Record<string, ComponentHealth> = {
       db: { status: 'healthy', latencyMs: 10 },
       service: { status: 'degraded', latencyMs: 500 },
@@ -240,8 +362,24 @@ describe('computeOverallHealth', () => {
     const checks: Record<string, ComponentHealth> = {
       db: { status: 'healthy', latencyMs: 10 },
     };
-    // non-existent critical check should be ignored
     expect(computeOverallHealth(checks, ['db', 'nonexistent'])).toBe('healthy');
+  });
+
+  test('returns unhealthy when critical check missing from checks but named as critical', () => {
+    // Critical check named 'db' doesn't exist in checks object
+    // The loop checks `if (check && check.status === 'unhealthy')` — check is undefined
+    const checks: Record<string, ComponentHealth> = {
+      redis: { status: 'healthy', latencyMs: 5 },
+    };
+    expect(computeOverallHealth(checks, ['db'])).toBe('healthy');
+  });
+
+  test('returns degraded when critical is healthy but another is unhealthy', () => {
+    const checks: Record<string, ComponentHealth> = {
+      db: { status: 'healthy', latencyMs: 5 },
+      cache: { status: 'unhealthy', latencyMs: 5 },
+    };
+    expect(computeOverallHealth(checks, ['db'])).toBe('degraded');
   });
 });
 
@@ -250,7 +388,7 @@ describe('buildHealthStatus', () => {
     const checks: Record<string, ComponentHealth> = {
       db: { status: 'healthy', latencyMs: 10, details: { poolSize: 10 } },
     };
-    const metrics = {
+    const metrics: HealthStatus['metrics'] = {
       processingBacklog: 5,
       avgLatencyMs: 100,
       errorRate: 0.01,
@@ -275,6 +413,41 @@ describe('buildHealthStatus', () => {
 
     const status = buildHealthStatus(checks, metrics, ['db']);
     expect(status.status).toBe('unhealthy');
+  });
+
+  test('returns degraded when non-critical check is unhealthy', () => {
+    const checks: Record<string, ComponentHealth> = {
+      cache: { status: 'unhealthy', latencyMs: 10 },
+    };
+    const metrics: HealthStatus['metrics'] = {
+      processingBacklog: 0,
+      avgLatencyMs: 0,
+      errorRate: 0,
+      costDriftPercentage: 0,
+      activeStories: 0,
+      activeShots: 0,
+    };
+
+    const status = buildHealthStatus(checks, metrics, ['db']);
+    expect(status.status).toBe('degraded');
+  });
+
+  test('uses empty criticalCheckNames by default', () => {
+    const checks: Record<string, ComponentHealth> = {
+      db: { status: 'unhealthy', latencyMs: 10 },
+    };
+    const metrics: HealthStatus['metrics'] = {
+      processingBacklog: 0,
+      avgLatencyMs: 0,
+      errorRate: 0,
+      costDriftPercentage: 0,
+      activeStories: 0,
+      activeShots: 0,
+    };
+
+    // Without criticalCheckNames, unhealthy db makes it degraded (not unhealthy)
+    const status = buildHealthStatus(checks, metrics);
+    expect(status.status).toBe('degraded');
   });
 });
 

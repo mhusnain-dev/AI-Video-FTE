@@ -9,9 +9,11 @@ RUN npm ci
 
 # Copy source code
 COPY src ./src
+COPY scripts ./scripts
 COPY config ./config
 COPY tsconfig.json ./
 COPY migrations ./migrations
+COPY secrets ./secrets
 
 # Expose ports
 EXPOSE 3000 9090

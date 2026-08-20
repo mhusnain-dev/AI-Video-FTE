@@ -5,20 +5,31 @@ import {
   HomeIcon,
   Cog6ToothIcon,
   ShieldCheckIcon,
+  PlusIcon,
+  AdjustmentsHorizontalIcon,
+  ArrowRightOnRectangleIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline';
-import { useUIStore } from '../store/uiStore';
 import { useHealth } from '../hooks/useStories';
+import { useAuth } from '../contexts/AuthContext';
+import { useChatStore } from '../store/chatStore';
+import { useNotifications } from '../store/uiStore';
 import { clsx } from 'clsx';
 
-const NAV_ITEMS = [
+interface NavItem {
+  path: string;
+  label: string;
+  icon: typeof HomeIcon;
+  adminOnly?: boolean;
+}
+
+const NAV_ITEMS: NavItem[] = [
   { path: '/', label: 'Dashboard', icon: HomeIcon },
   { path: '/stories/new', label: 'New Story', icon: PlusIcon },
   { path: '/settings', label: 'Settings', icon: Cog6ToothIcon },
-] as const;
-
-function PlusIcon({ className = '' }: { className?: string }) {
-  return <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>;
-}
+  { path: '/preferences', label: 'Preferences', icon: AdjustmentsHorizontalIcon },
+  { path: '/admin', label: 'Admin', icon: ShieldCheckIcon, adminOnly: true },
+];
 
 interface SidebarProps {
   isOpen: boolean;
@@ -26,8 +37,10 @@ interface SidebarProps {
 }
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
-  const { sidebarOpen, setCurrentStory } = useUIStore();
   const { data: health } = useHealth();
+  const { isAdmin } = useAuth();
+
+  const visibleItems = NAV_ITEMS.filter(item => !item.adminOnly || isAdmin);
 
   return (
     <>
@@ -65,7 +78,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {NAV_ITEMS.map((item) => (
+          {visibleItems.map((item) => (
             <a
               key={item.path}
               href={item.path}
@@ -90,7 +103,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
               { key: 'database', label: 'Database', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" /></svg> },
               { key: 'redis', label: 'Redis', icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.102 1.101" /></svg> },
               { key: 'vault', label: 'Vault', icon: ShieldCheckIcon },
-            ].map(({ key, label, icon }) => {
+            ].map(({ key, label }) => {
               const check = health?.checks?.[key];
               const status = check?.status || 'unknown';
               return (
@@ -111,24 +124,61 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 }
 
 export function Header({ onMenuClick }: { onMenuClick: () => void }) {
+  const { user, logout } = useAuth();
+  const { notify } = useNotifications();
+  const storyMatch = window.location.pathname.match(/\/stories\/([^/]+)/);
+  const currentStoryId = storyMatch?.[1] || '';
+
+  const handleChatClick = () => {
+    if (!currentStoryId) {
+      notify.info('Select a Story', 'Open a story to chat with the FTE');
+    } else if (currentStoryId === 'new') {
+      notify.info('Create Story First', 'Complete story creation to chat with the FTE');
+    } else {
+      useChatStore.getState().open(currentStoryId);
+    }
+  };
+
   return (
-    <header className="bg-white border-b border-gray-200 sticky top-0 z-30 lg:hidden">
+    <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
       <div className="flex items-center justify-between h-16 px-4">
-        <button onClick={onMenuClick} className="p-2 text-gray-500 hover:text-gray-700">
+        <button onClick={onMenuClick} className="p-2 text-gray-500 hover:text-gray-700 lg:hidden">
           <Bars3Icon className="w-6 h-6" />
         </button>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 lg:hidden">
           <span className="text-xl">🎬</span>
           <h1 className="text-lg font-bold text-gray-900">AI Video FTE</h1>
         </div>
-        <div className="w-10" />
+        <div className="flex-1" />
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handleChatClick}
+            className="p-2.5 text-gray-500 hover:text-primary-600 transition-colors"
+            title="Chat with FTE"
+            aria-label="Chat with FTE"
+          >
+            <SparklesIcon className="w-5 h-5" />
+          </button>
+          {user && (
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-gray-600 hidden sm:inline">{user.email}</span>
+              <button
+                onClick={logout}
+                className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-red-600 transition-colors"
+                title="Logout"
+              >
+                <ArrowRightOnRectangleIcon className="w-5 h-5" />
+                <span className="hidden sm:inline">Logout</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );
 }
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
-  const { sidebarOpen, toggleSidebar } = useUIStore();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   return (

@@ -97,9 +97,10 @@ export async function uploadCharacterReference(
 
   // 1. Face Detection (EC-003)
   const faceResult = await detectFaceAndEmbed(character.imageBase64);
-  if (!faceResult.hasFace || !faceResult.embedding) {
+  if (!faceResult.hasFace) {
     throw new Error('No face detected in reference image');
   }
+  const embedding = faceResult.embedding!;
 
   // 2. Sacred Guard Registry Check (FR-012 enforcement point b, EC-004, CON-002)
   const sacredCheck = await checkSacredGuard({
@@ -161,7 +162,7 @@ export async function uploadCharacterReference(
   // This would be injected from a real user key store
 
   const faceEncrypted = await encryptEmbeddingForStorage(
-    faceResult.embedding,
+    embedding,
     userId,
     async (uid) => userDeks.get(uid) || null,
     async (uid, dek, enc) => { userDeks.set(uid, { dekBase64: dek, encryptedDek: enc }); }
@@ -190,7 +191,7 @@ export async function uploadCharacterReference(
         userId,
         storyId,
         character.name,
-        `[${faceResult.embedding?.join(',') || ''}]`, // pgvector format
+        `[${embedding.join(',')}]`, // pgvector format
         voiceEmbedding ? `[${voiceEmbedding.join(',')}]` : null,
         imageHash,
         character.imageBase64, // Store the actual base64 image for Face-Lock conditioning

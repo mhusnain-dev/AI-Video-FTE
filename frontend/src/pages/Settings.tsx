@@ -24,6 +24,7 @@ import {
 import { clsx } from 'clsx';
 import { getUserId } from '../utils/userId';
 import type { ElementType } from 'react';
+import { TemperatureSlider } from '../components/TemperatureSlider';
 
 type SettingsTab = 'models' | 'cost' | 'rate-limits' | 'sacred-guard' | 'face-lock' | 'transitions' | 'audio' | 'security' | 'video';
 
@@ -225,6 +226,8 @@ function ModelsSettings({ userId }: { userId: string }) {
       <button onClick={handleSave} disabled={updatePriority.isPending} className="btn-primary">
         {updatePriority.isPending ? 'Saving...' : 'Save Model Priority'}
       </button>
+
+      <TemperatureSlider />
     </SettingsCard>
   );
 }

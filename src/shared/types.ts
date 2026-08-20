@@ -72,6 +72,7 @@ export interface ShotPlan {
   modelOverride?: string; // Manual model pin (FR-008)
   transition?: TransitionConfig; // Per-shot override (FR-027)
   status: ShotStatus;
+  errorMessage?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -609,6 +610,7 @@ export interface AppConfig {
   elevenlabsApiKey?: string;
   kieApiKey?: string;
   llmApiKey?: string;
+  nvidiaNimApiKey?: string;
 
   // Quality presets
   qualityPresets?: Record<QualityPreset, QualityPresetConfig>;
@@ -695,6 +697,7 @@ export interface MergerConfig {
   ffmpegPath: string;
   supportedFormats: string[];
   maxMergeTimeMs: number;
+  outputDir: string;
 }
 
 export interface ObservabilityConfig {

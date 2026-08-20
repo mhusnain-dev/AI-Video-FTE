@@ -1,11 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeftIcon,
   CheckCircleIcon,
   XCircleIcon,
   PencilIcon,
-  EyeIcon,
   PlayIcon,
   ClockIcon,
   ExclamationTriangleIcon,
@@ -16,8 +15,8 @@ import { ShotCard } from '../components/ShotCard';
 import { StatusBadge } from '../components/ShotCard';
 import { Modal, ConfirmDialog } from '../components/Modal';
 import { MergeApprovalDialog } from '../components/MergeApprovalDialog';
-import type { Story, Shot, ShotPlanRevision } from '../types/api';
-import { clsx } from 'clsx';
+import type { Shot, ShotPlanRevision } from '../types/api';
+
 import { getUserId } from '../utils/userId';
 
 export function ShotPlanReview() {
@@ -39,9 +38,11 @@ export function ShotPlanReview() {
   const userId = getUserId();
 
   // Set current story in UI store
-  if (story) {
-    setCurrentStory(story.id);
-  }
+  useEffect(() => {
+    if (story) {
+      setCurrentStory(story.id);
+    }
+  }, [story?.id, setCurrentStory]);
 
   const handlePresent = async () => {
     try {
@@ -62,10 +63,6 @@ export function ShotPlanReview() {
     } catch (err: any) {
       notify.error('Failed to Approve', err.response?.data?.error || err.message);
     }
-  };
-
-  const handleRequestChanges = () => {
-    setShowRequestChanges(true);
   };
 
   const handleSaveRevisions = async () => {
@@ -110,15 +107,6 @@ export function ShotPlanReview() {
 
   const handleRemoveShot = (shotId: string) => {
     setRevisions(prev => [...prev, { action: 'remove', shotId }]);
-  };
-
-  const handleReorderShots = (shotIds: string[]) => {
-    shotIds.forEach((id, index) => {
-      setRevisions(prev => [
-        ...prev.filter(r => r.shotId !== id),
-        { action: 'reorder', shotId: id, newOrder: index },
-      ]);
-    });
   };
 
   if (!storyId) return null;
@@ -255,7 +243,7 @@ export function ShotPlanReview() {
             </div>
           ) : (
             <div className="space-y-4">
-              {shots.map((shot, index) => (
+              {shots.map((shot: Shot) => (
                 <ShotCard
                   key={shot.id}
                   shot={shot}
@@ -336,7 +324,7 @@ export function ShotPlanReview() {
               add new ones, remove shots, or reorder them.
             </p>
             <div className="space-y-4 max-h-96 overflow-y-auto">
-              {shots.map((shot, index) => (
+              {shots.map((shot: Shot, index: number) => (
                 <div key={shot.id} className="border rounded-lg p-3">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="w-6 text-center font-medium">#{index + 1}</span>

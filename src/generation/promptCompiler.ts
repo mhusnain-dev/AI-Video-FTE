@@ -42,7 +42,7 @@ export async function enhancePromptWithLLM(
 ): Promise<string> {
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
     const contextParts = [
       `You are a video production prompt enhancer. Enhance the following shot description for a ${shot.durationSeconds}-second video clip.`,
@@ -250,58 +250,6 @@ function buildBasePrompt(shot: ShotPlan, stylePreset?: string): string {
 }
 
 /**
- * Build Face-Lock conditioning for characters in this shot (legacy single-character)
- * Used for backward compatibility
- */
-async function buildFaceLockConditioning(
-  shot: ShotPlan,
-  characters: CharacterRegistryEntry[],
-  model: ModelCapabilities,
-  retryCount: number = 0
-): Promise<FaceLockConditioning> {
-  // Find characters referenced in this shot (match by name in characters array)
-  const shotCharacters = characters.filter(c =>
-    shot.characters.includes(c.name)
-  );
-
-  if (shotCharacters.length === 0) {
-    // No character in this shot - return empty conditioning
-    return {
-      characterId: '',
-      characterName: '',
-      referenceImageBase64: '',
-      identityStrength: 0,
-      consistencyThreshold: config.faceLock.defaultPerModelThresholds[model.id] || 0.75,
-      maxRetries: config.faceLock.maxRetries || 3,
-      modelSpecificParams: {},
-    };
-  }
-
-  // For multi-character shots, use primary character (first in list)
-  // Multi-character support would composite multiple conditionings
-  const primaryCharacter = shotCharacters[0];
-
-  // Get model-specific Face-Lock parameters (CL-015)
-  const modelSpecificParams = getModelFaceLockParams(model.id, primaryCharacter, retryCount);
-
-  // Use actual base64 image from character registry
-  // CharacterRegistryEntry now stores referenceImageBase64 directly
-  const referenceImageBase64 = primaryCharacter.referenceImageBase64 || primaryCharacter.referenceImageHash || '';
-
-  const identityStrength = (primaryCharacter.metadata.identityStrength as number) ?? 0.8;
-
-  return {
-    characterId: primaryCharacter.id,
-    characterName: primaryCharacter.name,
-    referenceImageBase64,
-    identityStrength,
-    consistencyThreshold: config.faceLock.defaultPerModelThresholds[model.id] || 0.75,
-    maxRetries: config.faceLock.maxRetries || 3,
-    modelSpecificParams,
-  };
-}
-
-/**
  * Build multi-character Face-Lock conditioning for all characters in a shot
  * Returns array of FaceLockConditioning for each character in the shot
  * This replaces the single-character buildFaceLockConditioning for Task 40
@@ -352,7 +300,7 @@ export async function buildMultiFaceLockConditioning(
  * FIXED: Uses referenceImageBase64 instead of referenceImageHash for actual image conditioning
  * Includes retryCount for regeneration tracking
  */
-function getModelFaceLockParams(modelId: string, character: CharacterRegistryEntry, retryCount: number = 0): Record<string, any> {
+function getModelFaceLockParams(modelId: string, character: CharacterRegistryEntry, retryCount: number): Record<string, any> {
   const identityStrength = (character.metadata.identityStrength as number) ?? 0.8;
   const referenceImage = character.referenceImageBase64 || character.referenceImageHash || '';
   const baseParams = {
@@ -549,7 +497,7 @@ function buildNegativePrompt(shot: ShotPlan, model: ModelCapabilities): string {
 /**
  * Truncate prompt to max length while preserving key elements
  */
-function truncatePrompt(prompt: string, maxLength: number): string {
+export function truncatePrompt(prompt: string, maxLength: number): string {
   if (prompt.length <= maxLength) return prompt;
 
   // Split by sentences and keep most important
@@ -611,7 +559,7 @@ function supportsShotRequirements(model: ModelCapabilities, shot: ShotPlan): boo
 /**
  * Get the model-specific duration parameter key
  */
-function getDurationParamKey(modelId: string): string {
+export function getDurationParamKey(modelId: string): string {
   const durationKeys: Record<string, string> = {
     'veo3-low': 'duration_seconds',
     'veo3-high': 'duration_seconds',

@@ -1,27 +1,17 @@
 /**
  * Timeout Manager for Shot Generation
- * Handles per-model timeouts and triggers automatic fallback on timeout
- * Implements FR-020, CL-007
+ * Handles per-model timeouts. No fallback — prevents credit waste.
  */
 
 import { config } from '../shared/config.js';
 import { query } from '../shared/db.js';
 import { getAdapter } from '../router/modelAdapter.js';
-import { dispatchWithFallback } from './shotDispatcher.js';
-import { shotStateMachine, emitShotStateChange } from '../shared/events.js';
+import { emitShotStateChange } from '../shared/events.js';
 import type { ShotPlan, CompiledPrompt, DispatchRecord, ModelCapabilities, CharacterRegistryEntry } from '../shared/types.js';
-// Metrics
-import {
-  watchdogCheckTotal,
-  watchdogStuckDispatchesGauge,
-  shotTimeoutTotal,
-} from '../shared/metrics.js';
+import { shotTimeoutTotal } from '../shared/metrics.js';
 
 /** Active timeout timers keyed by dispatch ID */
 const timeoutTimers = new Map<string, NodeJS.Timeout>();
-
-/** Active fallback promises to prevent duplicate fallback triggers */
-const activeFallbacks = new Map<string, Promise<any>>();
 
 export interface TimeoutOptions {
   /** Timeout override in seconds (user per-story override) */
@@ -62,11 +52,6 @@ export async function startDispatchTimeout(
     return;
   }
 
-  // Don't trigger fallback if already in progress
-  if (activeFallbacks.has(dispatchRecord.id)) {
-    return;
-  }
-
   const timeoutSeconds = getEffectiveTimeout(primaryModel.id, overrideTimeoutSeconds);
   const timeoutMs = timeoutSeconds * 1000;
 
@@ -96,7 +81,7 @@ export async function startDispatchTimeout(
       return;
     }
 
-    console.log(`Dispatch ${dispatchRecord.id} timed out after ${timeoutSeconds}s, triggering fallback`);
+    console.log(`Dispatch ${dispatchRecord.id} timed out after ${timeoutSeconds}s (no fallback — credit protection)`);
 
     // Record timeout metric
     shotTimeoutTotal.inc({ model_id: primaryModel.id, timeout_seconds: timeoutSeconds.toString() });
@@ -111,7 +96,7 @@ export async function startDispatchTimeout(
       // Update shot status
       await query(
         `UPDATE shots SET status = 'failed', error_message = $2, updated_at = NOW() WHERE id = $1`,
-        [shot.id, `Model ${primaryModel.id} timed out after ${timeoutSeconds}s`]
+        [shot.id, `Model ${primaryModel.id} timed out after ${timeoutSeconds}s — no fallback triggered`]
       );
 
       // Emit state change
@@ -126,28 +111,12 @@ export async function startDispatchTimeout(
       if (adapter && dispatchRecord.providerRequestId) {
         try {
           await adapter.cancel(dispatchRecord.providerRequestId);
-          console.log(`Cancelled provider request ${dispatchRecord.providerRequestId}`);
-        } catch (error) {
-          console.warn(`Failed to cancel provider request ${dispatchRecord.providerRequestId}:`, error);
+        } catch {
+          // Best effort — KIE doesn't support cancel
         }
       }
 
-      // Trigger fallback to next model
-      const fallbackPromise = dispatchWithFallback(
-        shot,
-        promptOutput,
-        primaryModel,
-        fallbackModels,
-        { skipAdmission: true, characters }
-      );
-
-      activeFallbacks.set(dispatchRecord.id, fallbackPromise);
-
-      try {
-        await fallbackPromise;
-      } finally {
-        activeFallbacks.delete(dispatchRecord.id);
-      }
+      // NO fallback — avoids wasting credits on retry chains
     }
   }, timeoutMs);
 
@@ -166,7 +135,6 @@ export function cancelDispatchTimeout(dispatchId: string): void {
     clearTimeout(timer);
     timeoutTimers.delete(dispatchId);
   }
-  activeFallbacks.delete(dispatchId);
 }
 
 /**
@@ -184,7 +152,6 @@ export function cancelAllTimeouts(): void {
     clearTimeout(timer);
   }
   timeoutTimers.clear();
-  activeFallbacks.clear();
 }
 
 /**

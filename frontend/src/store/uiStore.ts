@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Story, Shot, CharacterReference } from '../types/api';
+import type { Story, Shot } from '../types/api';
 
 interface UIState {
   // Global UI state

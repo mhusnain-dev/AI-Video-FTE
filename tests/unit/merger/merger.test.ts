@@ -48,11 +48,14 @@ jest.mock('@/shared/config', () => ({
 
 jest.mock('child_process', () => ({
   spawn: jest.fn(),
+  execSync: jest.fn(),
 }));
 
 jest.mock('fs/promises', () => ({
   stat: jest.fn(),
-  writeFile: jest.fn(),
+  writeFile: jest.fn().mockResolvedValue(undefined),
+  unlink: jest.fn().mockResolvedValue(undefined),
+  access: jest.fn().mockResolvedValue(undefined),
 }));
 
 global.fetch = jest.fn().mockResolvedValue({
@@ -63,14 +66,17 @@ global.fetch = jest.fn().mockResolvedValue({
 } as Response) as unknown as typeof fetch;
 
 import { query } from '@/shared/db';
-import { spawn } from 'child_process';
-import { stat, writeFile } from 'fs/promises';
+import { spawn, execSync } from 'child_process';
+import { stat, writeFile, unlink, access } from 'fs/promises';
 import type { QueryResult, QueryResultRow } from 'pg';
 
 const mockQuery = query as jest.MockedFunction<typeof query>;
 const mockSpawn = spawn as jest.MockedFunction<typeof spawn>;
+const mockExecSync = execSync as jest.MockedFunction<typeof execSync>;
 const mockStat = stat as jest.MockedFunction<typeof stat>;
 const mockWriteFile = writeFile as jest.MockedFunction<typeof writeFile>;
+const mockUnlink = unlink as jest.MockedFunction<typeof unlink>;
+const mockAccess = access as jest.MockedFunction<typeof access>;
 
 function createQueryResult<T extends QueryResultRow>(rows: T[]): QueryResult<T> {
   return {
@@ -965,6 +971,547 @@ describe('Video Merger', () => {
   });
 
   // ============================================
+  // TTS Audio Generation Tests (L269-341)
+  // ============================================
+
+  describe('generateTTSAudio - no API key fallback', () => {
+    test('generates placeholder when ElevenLabs API key is missing', async () => {
+      const { config } = await import('@/shared/config');
+      const original = (config as any).elevenlabsApiKey;
+      (config as any).elevenlabsApiKey = '';
+
+      const shots: ShotVideoInfo[] = [
+        { shotId: 'shot-1', videoPath: '/path/1.mp4', durationSeconds: 5, hasAudio: false },
+      ];
+      const audioConfig: AudioConfig = {
+        useNativeAudio: false,
+        ttsConfig: { provider: 'elevenlabs', voiceId: 'test', style: 'normal', text: 'Hello world' },
+      };
+
+      mockExecSync.mockReturnValue(Buffer.from(''));
+
+      const inputs = await buildAudioInputs(shots, audioConfig, '/tmp/test');
+      expect(inputs.length).toBe(1);
+      expect(inputs[0]).toContain('tts_placeholder_');
+      expect(mockExecSync).toHaveBeenCalled();
+
+      (config as any).elevenlabsApiKey = original;
+    });
+
+    test('generates placeholder when fetch throws non-Error', async () => {
+      const { config } = await import('@/shared/config');
+      const original = (config as any).elevenlabsApiKey;
+      (config as any).elevenlabsApiKey = 'test-key';
+
+      const origFetch = globalThis.fetch;
+      const mockFn = jest.fn().mockImplementation(async () => {
+        throw 'string error';
+      });
+      (globalThis as any).fetch = mockFn;
+
+      const shots: ShotVideoInfo[] = [
+        { shotId: 'shot-1', videoPath: '/path/1.mp4', durationSeconds: 5, hasAudio: false },
+      ];
+      const audioConfig: AudioConfig = {
+        useNativeAudio: false,
+        ttsConfig: { provider: 'elevenlabs', voiceId: 'test', style: 'normal', text: 'Hello world' },
+      };
+
+      mockExecSync.mockReturnValue(Buffer.from(''));
+
+      const inputs = await buildAudioInputs(shots, audioConfig, '/tmp/test');
+      expect(inputs.length).toBe(1);
+      expect(inputs[0]).toContain('tts_placeholder_');
+      expect(mockFn).toHaveBeenCalled();
+
+      (globalThis as any).fetch = origFetch;
+      (config as any).elevenlabsApiKey = original;
+    });
+
+    test('generates placeholder when fetch throws an Error object', async () => {
+      const { config } = await import('@/shared/config');
+      const original = (config as any).elevenlabsApiKey;
+      (config as any).elevenlabsApiKey = 'test-key';
+
+      const origFetch = globalThis.fetch;
+      const mockFn = jest.fn().mockImplementation(async () => {
+        throw new Error('network timeout');
+      });
+      (globalThis as any).fetch = mockFn;
+
+      const shots: ShotVideoInfo[] = [
+        { shotId: 'shot-1', videoPath: '/path/1.mp4', durationSeconds: 5, hasAudio: false },
+      ];
+      const audioConfig: AudioConfig = {
+        useNativeAudio: false,
+        ttsConfig: { provider: 'elevenlabs', voiceId: 'test', style: 'normal', text: 'Hello world' },
+      };
+
+      mockExecSync.mockReturnValue(Buffer.from(''));
+
+      const inputs = await buildAudioInputs(shots, audioConfig, '/tmp/test');
+      expect(inputs.length).toBe(1);
+      expect(inputs[0]).toContain('tts_placeholder_');
+
+      (globalThis as any).fetch = origFetch;
+      (config as any).elevenlabsApiKey = original;
+    });
+
+    test('generates placeholder when ElevenLabs returns non-OK status', async () => {
+      const { config } = await import('@/shared/config');
+      const original = (config as any).elevenlabsApiKey;
+      (config as any).elevenlabsApiKey = 'test-key';
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        text: async () => 'Unauthorized',
+        arrayBuffer: async () => new ArrayBuffer(0),
+      } as Response);
+
+      const shots: ShotVideoInfo[] = [
+        { shotId: 'shot-1', videoPath: '/path/1.mp4', durationSeconds: 5, hasAudio: false },
+      ];
+      const audioConfig: AudioConfig = {
+        useNativeAudio: false,
+        ttsConfig: { provider: 'elevenlabs', voiceId: 'test', style: 'normal', text: 'Hello world' },
+      };
+
+      mockExecSync.mockReturnValue(Buffer.from(''));
+
+      const inputs = await buildAudioInputs(shots, audioConfig, '/tmp/test');
+      expect(inputs.length).toBe(1);
+      expect(inputs[0]).toContain('tts_placeholder_');
+
+      (config as any).elevenlabsApiKey = original;
+    });
+
+    test('generates placeholder when response.text() throws on non-OK status', async () => {
+      const { config } = await import('@/shared/config');
+      const original = (config as any).elevenlabsApiKey;
+      (config as any).elevenlabsApiKey = 'test-key';
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => { throw new Error('body consumed'); },
+        arrayBuffer: async () => new ArrayBuffer(0),
+      } as unknown as Response);
+
+      const shots: ShotVideoInfo[] = [
+        { shotId: 'shot-1', videoPath: '/path/1.mp4', durationSeconds: 5, hasAudio: false },
+      ];
+      const audioConfig: AudioConfig = {
+        useNativeAudio: false,
+        ttsConfig: { provider: 'elevenlabs', voiceId: 'test', style: 'normal', text: 'Hello world' },
+      };
+
+      mockExecSync.mockReturnValue(Buffer.from(''));
+
+      const inputs = await buildAudioInputs(shots, audioConfig, '/tmp/test');
+      expect(inputs.length).toBe(1);
+      expect(inputs[0]).toContain('tts_placeholder_');
+
+      (config as any).elevenlabsApiKey = original;
+    });
+
+    test('placeholder falls back to silent MP3 when execSync throws', async () => {
+      const { config } = await import('@/shared/config');
+      const original = (config as any).elevenlabsApiKey;
+      (config as any).elevenlabsApiKey = '';
+
+      mockExecSync.mockImplementation(() => { throw new Error('ffmpeg not found'); });
+
+      const shots: ShotVideoInfo[] = [
+        { shotId: 'shot-1', videoPath: '/path/1.mp4', durationSeconds: 5, hasAudio: false },
+      ];
+      const audioConfig: AudioConfig = {
+        useNativeAudio: false,
+        ttsConfig: { provider: 'elevenlabs', voiceId: 'test', style: 'normal', text: 'Hello world' },
+      };
+
+      const inputs = await buildAudioInputs(shots, audioConfig, '/tmp/test');
+      expect(inputs.length).toBe(1);
+      expect(inputs[0]).toContain('tts_placeholder_');
+      expect(mockWriteFile).toHaveBeenCalled();
+
+      (config as any).elevenlabsApiKey = original;
+    });
+
+    test('placeholder uses default voice ID when voiceId not specified', async () => {
+      const { config } = await import('@/shared/config');
+      const original = (config as any).elevenlabsApiKey;
+      (config as any).elevenlabsApiKey = 'test-key';
+
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => new ArrayBuffer(8),
+        text: async () => '',
+      } as Response);
+
+      const shots: ShotVideoInfo[] = [
+        { shotId: 'shot-1', videoPath: '/path/1.mp4', durationSeconds: 5, hasAudio: false },
+      ];
+      const audioConfig: AudioConfig = {
+        useNativeAudio: false,
+        ttsConfig: { provider: 'elevenlabs', voiceId: '', style: 'normal', text: 'Hello world' },
+      };
+
+      const inputs = await buildAudioInputs(shots, audioConfig, '/tmp/test');
+      expect(inputs.length).toBe(1);
+
+      const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
+      expect(fetchCall[0]).toContain('21m00Tcm4TlvDq8ikWAM');
+
+      (config as any).elevenlabsApiKey = original;
+    });
+
+    test('placeholder narration duration is at least 3 seconds', async () => {
+      const { config } = await import('@/shared/config');
+      const original = (config as any).elevenlabsApiKey;
+      (config as any).elevenlabsApiKey = '';
+
+      mockExecSync.mockReturnValue(Buffer.from(''));
+
+      const shots: ShotVideoInfo[] = [
+        { shotId: 'shot-1', videoPath: '/path/1.mp4', durationSeconds: 5, hasAudio: false },
+      ];
+      const audioConfig: AudioConfig = {
+        useNativeAudio: false,
+        ttsConfig: { provider: 'elevenlabs', voiceId: 'test', style: 'normal', text: 'Hi' },
+      };
+
+      await buildAudioInputs(shots, audioConfig, '/tmp/test');
+
+      const execCall = mockExecSync.mock.calls[0][0] as string;
+      expect(execCall).toContain('duration=3');
+
+      (config as any).elevenlabsApiKey = original;
+    });
+  });
+
+  // ============================================
+  // Music Track Generation Tests (L364-386)
+  // ============================================
+
+  describe('getMusicTrack - mood-based generation', () => {
+    test('generates dramatic mood track', async () => {
+      const shots: ShotVideoInfo[] = [
+        { shotId: 'shot-1', videoPath: '/path/1.mp4', durationSeconds: 5, hasAudio: false },
+      ];
+      const audioConfig: AudioConfig = {
+        useNativeAudio: false,
+        musicConfig: { source: 'royalty_free', trackId: 'dramatic', volume: 0.5 },
+      };
+
+      mockExecSync.mockReturnValue(Buffer.from(''));
+
+      const inputs = await buildAudioInputs(shots, audioConfig, '/tmp/test');
+      expect(inputs.length).toBe(1);
+      expect(inputs[0]).toContain('music_');
+
+      const execCall = mockExecSync.mock.calls[0][0] as string;
+      expect(execCall).toContain('sine=frequency=80');
+      expect(execCall).toContain('tremolo=f=0.3');
+    });
+
+    test('generates upbeat mood track', async () => {
+      const shots: ShotVideoInfo[] = [
+        { shotId: 'shot-1', videoPath: '/path/1.mp4', durationSeconds: 5, hasAudio: false },
+      ];
+      const audioConfig: AudioConfig = {
+        useNativeAudio: false,
+        musicConfig: { source: 'royalty_free', trackId: 'upbeat', volume: 0.5 },
+      };
+
+      mockExecSync.mockReturnValue(Buffer.from(''));
+
+      const inputs = await buildAudioInputs(shots, audioConfig, '/tmp/test');
+      expect(inputs.length).toBe(1);
+
+      const execCall = mockExecSync.mock.calls[0][0] as string;
+      expect(execCall).toContain('sine=frequency=440');
+      expect(execCall).toContain('chorus=');
+    });
+
+    test('generates cinematic mood track', async () => {
+      const shots: ShotVideoInfo[] = [
+        { shotId: 'shot-1', videoPath: '/path/1.mp4', durationSeconds: 5, hasAudio: false },
+      ];
+      const audioConfig: AudioConfig = {
+        useNativeAudio: false,
+        musicConfig: { source: 'royalty_free', trackId: 'cinematic', volume: 0.5 },
+      };
+
+      mockExecSync.mockReturnValue(Buffer.from(''));
+
+      const inputs = await buildAudioInputs(shots, audioConfig, '/tmp/test');
+      expect(inputs.length).toBe(1);
+
+      const execCall = mockExecSync.mock.calls[0][0] as string;
+      expect(execCall).toContain('aevalsrc=');
+      expect(execCall).toContain('110*t');
+    });
+
+    test('generates calm mood track (default)', async () => {
+      const shots: ShotVideoInfo[] = [
+        { shotId: 'shot-1', videoPath: '/path/1.mp4', durationSeconds: 5, hasAudio: false },
+      ];
+      const audioConfig: AudioConfig = {
+        useNativeAudio: false,
+        musicConfig: { source: 'royalty_free', trackId: 'calm', volume: 0.5 },
+      };
+
+      mockExecSync.mockReturnValue(Buffer.from(''));
+
+      const inputs = await buildAudioInputs(shots, audioConfig, '/tmp/test');
+      expect(inputs.length).toBe(1);
+
+      const execCall = mockExecSync.mock.calls[0][0] as string;
+      expect(execCall).toContain('174.6*t');
+      expect(execCall).toContain('tremolo=f=0.1');
+    });
+
+    test('falls back to silent MP3 when execSync throws', async () => {
+      const shots: ShotVideoInfo[] = [
+        { shotId: 'shot-1', videoPath: '/path/1.mp4', durationSeconds: 5, hasAudio: false },
+      ];
+      const audioConfig: AudioConfig = {
+        useNativeAudio: false,
+        musicConfig: { source: 'royalty_free', trackId: 'calm', volume: 0.5 },
+      };
+
+      mockExecSync.mockImplementation(() => { throw new Error('ffmpeg not found'); });
+
+      const inputs = await buildAudioInputs(shots, audioConfig, '/tmp/test');
+      expect(inputs.length).toBe(1);
+      expect(inputs[0]).toContain('music_');
+      expect(mockWriteFile).toHaveBeenCalled();
+    });
+
+    test('generates music with default mood when trackId not provided', async () => {
+      const shots: ShotVideoInfo[] = [
+        { shotId: 'shot-1', videoPath: '/path/1.mp4', durationSeconds: 5, hasAudio: false },
+      ];
+      const audioConfig: AudioConfig = {
+        useNativeAudio: false,
+        musicConfig: { source: 'royalty_free', volume: 0.5 },
+      };
+
+      mockExecSync.mockReturnValue(Buffer.from(''));
+
+      const inputs = await buildAudioInputs(shots, audioConfig, '/tmp/test');
+      expect(inputs.length).toBe(1);
+
+      const execCall = mockExecSync.mock.calls[0][0] as string;
+      expect(execCall).toContain('174.6*t');
+    });
+  });
+
+  // ============================================
+  // Execute Merge Error Handling Tests (L408, L463)
+  // ============================================
+
+  describe('executeMerge - error paths', () => {
+    test('spawns FFmpeg with audio input arguments', async () => {
+      const story = createMockStory();
+      const shots = [createMockShot({ id: 'shot-1' })];
+
+      setupMergeMock(story, shots);
+
+      const ffmpegProc = {
+        stderr: { on: jest.fn() },
+        on: jest.fn((event, cb) => {
+          if (event === 'close') cb(0);
+        }),
+      };
+      const ffprobeProc = {
+        stdout: { on: jest.fn((event, cb) => { if (event === 'data') cb(Buffer.from('1')); }) },
+        on: jest.fn((event, cb) => {
+          if (event === 'close') cb(0);
+        }),
+      };
+
+      mockSpawn.mockReset();
+      mockSpawn.mockImplementation((cmd: string, args?: readonly string[]) => {
+        if (cmd === 'ffprobe' || args?.includes('-show_entries')) {
+          return ffprobeProc as any;
+        }
+        return ffmpegProc as any;
+      });
+
+      // Also provide audio inputs by mocking buildAudioInputs indirectly
+      // via the mergeStoryShots flow with TTS config
+      const { config } = await import('@/shared/config');
+      const original = (config as any).elevenlabsApiKey;
+      (config as any).elevenlabsApiKey = '';
+      mockExecSync.mockReturnValue(Buffer.from(''));
+
+      await mergeStoryShots('story-1', {
+        audioConfig: {
+          useNativeAudio: false,
+          ttsConfig: { provider: 'elevenlabs', voiceId: 'test', style: 'normal', text: 'Test narration' },
+        },
+      });
+
+      const ffmpegCall = mockSpawn.mock.calls.find((call: any[]) => call[1]?.includes('-filter_complex'));
+      expect(ffmpegCall).toBeDefined();
+      const spawnArgs = ffmpegCall![1];
+      // Should have -i flags for both video and audio inputs
+      const inputCount = spawnArgs.filter((a: string) => a === '-i').length;
+      expect(inputCount).toBeGreaterThanOrEqual(2); // at least video + audio
+
+      (config as any).elevenlabsApiKey = original;
+    });
+
+    test('rejects on FFmpeg spawn error', async () => {
+      const story = createMockStory();
+      const shots = [createMockShot({ id: 'shot-1' })];
+
+      setupMergeMock(story, shots);
+
+      const ffmpegProc = {
+        stderr: { on: jest.fn() },
+        on: jest.fn((event, cb) => {
+          if (event === 'error') cb(new Error('spawn EACCES'));
+        }),
+      };
+      const ffprobeProc = {
+        stdout: { on: jest.fn((event, cb) => { if (event === 'data') cb(Buffer.from('1')); }) },
+        on: jest.fn((event, cb) => {
+          if (event === 'close') cb(0);
+        }),
+      };
+
+      mockSpawn.mockReset();
+      mockSpawn.mockImplementation((cmd: string, args?: readonly string[]) => {
+        if (cmd === 'ffprobe' || args?.includes('-show_entries')) {
+          return ffprobeProc as any;
+        }
+        return ffmpegProc as any;
+      });
+
+      await expect(mergeStoryShots('story-1')).rejects.toThrow('FFmpeg spawn error');
+    });
+  });
+
+  // ============================================
+  // Subtitle Format Edge Cases (L789, L827, L866)
+  // ============================================
+
+  describe('generateSubtitles - edge cases', () => {
+    test('defaults to SRT for unknown format', async () => {
+      const { generateSubtitles } = await import('@/merger/merger');
+      const story = createMockStory({ shots: [] });
+      mockQuery.mockResolvedValueOnce(createQueryResult([story]));
+
+      const result = await generateSubtitles('story-1', { format: 'unknown' as any, language: 'en' });
+      expect(result.format).toBe('unknown');
+      expect(result.content).toContain('-->');
+    });
+
+    test('generates VTT with empty shots', async () => {
+      const { generateSubtitles } = await import('@/merger/merger');
+      const story = createMockStory({ shots: [] });
+      mockQuery.mockResolvedValueOnce(createQueryResult([story]));
+
+      const result = await generateSubtitles('story-1', { format: 'vtt', language: 'en', shots: [] });
+      expect(result.format).toBe('vtt');
+      expect(result.content).toContain('WEBVTT');
+      expect(result.content).toContain('[Generated subtitle content]');
+    });
+
+    test('generates ASS with empty shots', async () => {
+      const { generateSubtitles } = await import('@/merger/merger');
+      const story = createMockStory({ shots: [] });
+      mockQuery.mockResolvedValueOnce(createQueryResult([story]));
+
+      const result = await generateSubtitles('story-1', { format: 'ass', language: 'fr', shots: [] });
+      expect(result.format).toBe('ass');
+      expect(result.content).toContain('[Script Info]');
+      expect(result.content).toContain('Dialogue:');
+      expect(result.content).toContain('{Generated subtitle content}');
+    });
+
+    test('generates SRT with explicit shots', async () => {
+      const { generateSubtitles } = await import('@/merger/merger');
+      const shots = [
+        { shotId: 'shot-1', text: 'Hello', startTime: 0, endTime: 5 },
+        { shotId: 'shot-2', text: 'World', startTime: 5, endTime: 10 },
+      ];
+
+      const result = await generateSubtitles('story-1', { format: 'srt', shots });
+      expect(result.content).toContain('1\n00:00:00,000 --> 00:00:05,000\nHello');
+      expect(result.content).toContain('2\n00:00:05,000 --> 00:00:10,000\nWorld');
+    });
+
+    test('generates VTT with explicit shots', async () => {
+      const { generateSubtitles } = await import('@/merger/merger');
+      const shots = [
+        { shotId: 'shot-1', text: 'Hello', startTime: 0, endTime: 5 },
+      ];
+
+      const result = await generateSubtitles('story-1', { format: 'vtt', shots });
+      expect(result.content).toContain('WEBVTT');
+      expect(result.content).toContain('00:00:00.000 --> 00:00:05.000');
+      expect(result.content).toContain('Hello');
+    });
+
+    test('generates ASS with explicit shots', async () => {
+      const { generateSubtitles } = await import('@/merger/merger');
+      const shots = [
+        { shotId: 'shot-1', text: 'Hello, World', startTime: 0, endTime: 5 },
+      ];
+
+      const result = await generateSubtitles('story-1', { format: 'ass', language: 'en', shots });
+      expect(result.content).toContain('Dialogue: 0,0:00:00.00,0:00:05.00,Default,,0,0,0,,Hello\\, World');
+    });
+
+    test('generates SRT with shots from story when no explicit shots', async () => {
+      const { generateSubtitles } = await import('@/merger/merger');
+      const story = createMockStory({
+        shots: [
+          { id: 's1', narration: 'First shot narration', startTime: 0, endTime: 5 },
+          { id: 's2', narration: 'Second shot narration', startTime: 5, endTime: 10 },
+        ],
+      });
+      mockQuery.mockResolvedValueOnce(createQueryResult([story]));
+
+      const result = await generateSubtitles('story-1', { format: 'srt' });
+      expect(result.content).toContain('First shot narration');
+      expect(result.content).toContain('Second shot narration');
+    });
+
+    test('generates SRT with audioCues fallback', async () => {
+      const { generateSubtitles } = await import('@/merger/merger');
+      const story = createMockStory({
+        shots: [
+          { id: 's1', audioCues: ['Sound effect 1', 'Sound effect 2'] },
+        ],
+      });
+      mockQuery.mockResolvedValueOnce(createQueryResult([story]));
+
+      const result = await generateSubtitles('story-1', { format: 'srt' });
+      expect(result.content).toContain('Sound effect 1 Sound effect 2');
+    });
+
+    test('generates SRT with default timing when startTime/endTime missing', async () => {
+      const { generateSubtitles } = await import('@/merger/merger');
+      const story = createMockStory({
+        shots: [
+          { id: 's1', narration: 'No timing' },
+        ],
+      });
+      mockQuery.mockResolvedValueOnce(createQueryResult([story]));
+
+      const result = await generateSubtitles('story-1', { format: 'srt' });
+      expect(result.content).toContain('00:00:00,000 --> 00:00:05,000');
+      expect(result.content).toContain('No timing');
+    });
+  });
+
+  // ============================================
   // Partial Regeneration Tests (Task 46)
   // ============================================
 
@@ -1022,6 +1569,124 @@ describe('Video Merger', () => {
       const filterComplex = spawnArgs[filterComplexIdx + 1];
       expect(filterComplex).toContain('slidelossless');
       expect(filterComplex).toContain('scale=3840:2160');
+    });
+  });
+
+  // ============================================
+  // Remaining Branch Coverage Tests
+  // ============================================
+
+  describe('remaining branch coverage', () => {
+    test('L136: falls back to default audioConfig when story has no audio_config', async () => {
+      const story = createMockStory({ audio_config: null });
+      const shots = [createMockShot({ id: 'shot-1' })];
+
+      setupMergeMock(story, shots);
+      mockSpawnSuccess();
+
+      const result = await mergeStoryShots('story-1');
+      expect(result).toBeDefined();
+    });
+
+    test('L590-592: delivery handles null tags and completed_at', async () => {
+      const story = createMockStory({
+        merged_video_path: '/path/merged.mp4',
+        subtitle_config: null,
+        tags: null,
+        completed_at: null,
+      });
+      const shots = [createMockShot({ id: 'shot-1' })];
+
+      mockQuery
+        .mockResolvedValueOnce(createQueryResult([story]))
+        .mockResolvedValueOnce(createQueryResult(shots))
+        .mockResolvedValueOnce(createQueryResult([]))
+        .mockResolvedValueOnce(createQueryResult([]))
+        .mockResolvedValueOnce(createQueryResult([]))
+        .mockResolvedValueOnce(createQueryResult([]));
+
+      const pkg = await generateDeliveryPackage('story-1');
+      expect(pkg.metadata.tags).toEqual([]);
+      expect(pkg.metadata.completedAt).toBeInstanceOf(Date);
+    });
+
+    test('L684: logs include shotId for shot events', async () => {
+      const story = createMockStory({ merged_video_path: '/path/merged.mp4', subtitle_config: null });
+      const shots = [createMockShot({ id: 'shot-1' })];
+      const events = [
+        { event_type: 'shot_completed', entity_type: 'shot', entity_id: 'shot-1', from_state: 'generating', to_state: 'completed', timestamp: new Date(), metadata: {} },
+        { event_type: 'story_started', entity_type: 'story', entity_id: 'story-1', from_state: 'pending', to_state: 'generating', timestamp: new Date(), metadata: {} },
+      ];
+
+      mockQuery
+        .mockResolvedValueOnce(createQueryResult([story]))
+        .mockResolvedValueOnce(createQueryResult(shots))
+        .mockResolvedValueOnce(createQueryResult([]))
+        .mockResolvedValueOnce(createQueryResult([]))
+        .mockResolvedValueOnce(createQueryResult(events))
+        .mockResolvedValueOnce(createQueryResult([]));
+
+      const pkg = await generateDeliveryPackage('story-1');
+      expect(pkg.logs[0].shotId).toBe('shot-1');
+      expect(pkg.logs[1].shotId).toBeUndefined();
+    });
+
+    test('L686: logs error level when metadata has error', async () => {
+      const story = createMockStory({ merged_video_path: '/path/merged.mp4', subtitle_config: null });
+      const shots = [createMockShot({ id: 'shot-1' })];
+      const events = [
+        { event_type: 'shot_failed', entity_type: 'shot', entity_id: 'shot-1', from_state: 'generating', to_state: 'failed', timestamp: new Date(), metadata: { error: 'Generation failed' } },
+      ];
+
+      mockQuery
+        .mockResolvedValueOnce(createQueryResult([story]))
+        .mockResolvedValueOnce(createQueryResult(shots))
+        .mockResolvedValueOnce(createQueryResult([]))
+        .mockResolvedValueOnce(createQueryResult([]))
+        .mockResolvedValueOnce(createQueryResult(events))
+        .mockResolvedValueOnce(createQueryResult([]));
+
+      const pkg = await generateDeliveryPackage('story-1');
+      expect(pkg.logs[0].level).toBe('error');
+    });
+
+    test('L768: subtitle uses audioCues when narration missing', async () => {
+      const { generateSubtitles } = await import('@/merger/merger');
+      const story = createMockStory({
+        shots: [
+          { id: 's1', audioCues: ['Sound A'] },
+        ],
+      });
+      mockQuery.mockResolvedValueOnce(createQueryResult([story]));
+
+      const result = await generateSubtitles('story-1', { format: 'srt' });
+      expect(result.content).toContain('Sound A');
+    });
+
+    test('L768: subtitle uses [No narration] when both narration and audioCues are empty strings', async () => {
+      const { generateSubtitles } = await import('@/merger/merger');
+      const story = createMockStory({
+        shots: [
+          { id: 's1', narration: '', audioCues: [''] },
+        ],
+      });
+      mockQuery.mockResolvedValueOnce(createQueryResult([story]));
+
+      const result = await generateSubtitles('story-1', { format: 'srt' });
+      expect(result.content).toContain('[No narration]');
+    });
+
+    test('L768: subtitle uses fallback shot ID when id missing', async () => {
+      const { generateSubtitles } = await import('@/merger/merger');
+      const story = createMockStory({
+        shots: [
+          { narration: 'No id shot' },
+        ],
+      });
+      mockQuery.mockResolvedValueOnce(createQueryResult([story]));
+
+      const result = await generateSubtitles('story-1', { format: 'srt' });
+      expect(result.content).toContain('No id shot');
     });
   });
 });

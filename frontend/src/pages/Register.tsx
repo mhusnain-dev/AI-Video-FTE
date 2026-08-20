@@ -34,7 +34,7 @@ export function Register() {
 
     try {
       await register(email, password);
-      navigate('/', { replace: true });
+      navigate('/pending', { replace: true });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Registration failed. Please try again.';
       setError(message);

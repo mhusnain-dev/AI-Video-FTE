@@ -209,6 +209,32 @@ describe('Transition System', () => {
 
       expect(filter).toContain('xfade=transition=fade');
     });
+
+    test('uses crossfade default when type is undefined', () => {
+      const filter = buildTransitionFilter({
+        inputA: 'v0',
+        inputB: 'v1',
+        output: 'v1',
+        durationSeconds: 0.5,
+        offsetSeconds: 4.5,
+      } as TransitionFilterOptions);
+
+      expect(filter).toContain('xfade=transition=fade');
+      expect(filter).toContain('duration=0.5');
+    });
+
+    test('uses crossfade default when type is empty string', () => {
+      const filter = buildTransitionFilter({
+        inputA: 'v0',
+        inputB: 'v1',
+        output: 'v1',
+        durationSeconds: 0.5,
+        offsetSeconds: 4.5,
+        type: '',
+      } as TransitionFilterOptions);
+
+      expect(filter).toContain('xfade=transition=fade');
+    });
   });
 
   describe('buildScaleFilter', () => {
@@ -423,6 +449,39 @@ describe('Transition System', () => {
 
       const merged = mergeTransitionConfigs(global, shot);
       expect(merged.durationSeconds).toBe(1.0);
+    });
+
+    test('shot with explicit duration of 0 uses 0 not global', () => {
+      const global: TransitionConfig = { type: 'crossfade', durationSeconds: 0.5 };
+      const shot: TransitionConfig = { type: 'slide', durationSeconds: 0 };
+
+      const merged = mergeTransitionConfigs(global, shot);
+      expect(merged.durationSeconds).toBe(0);
+    });
+
+    test('global with explicit duration 0 and no shot duration uses 0', () => {
+      const global: TransitionConfig = { type: 'crossfade', durationSeconds: 0 };
+      const shot = { type: 'slide' } as TransitionConfig;
+
+      const merged = mergeTransitionConfigs(global, shot);
+      expect(merged.durationSeconds).toBe(0);
+    });
+
+    test('both global and shot with undefined duration uses default 0.5', () => {
+      const global = {} as TransitionConfig;
+      const shot = {} as TransitionConfig;
+
+      const merged = mergeTransitionConfigs(global, shot);
+      expect(merged.type).toBe('crossfade');
+      expect(merged.durationSeconds).toBe(0.5);
+    });
+
+    test('global with null durationSeconds uses default', () => {
+      const global: TransitionConfig = { type: 'crossfade', durationSeconds: null as any };
+      const shot = { type: 'slide' } as TransitionConfig;
+
+      const merged = mergeTransitionConfigs(global, shot);
+      expect(merged.durationSeconds).toBe(0.5);
     });
   });
 });

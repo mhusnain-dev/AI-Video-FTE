@@ -1,4 +1,4 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 interface ProtectedRouteProps {
@@ -6,7 +6,8 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { isAuthenticated, isLoading, isAdmin, isPending, isApproved } = useAuth();
+  const { isAuthenticated, isLoading, isPending } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -20,15 +21,11 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     return <Navigate to="/login" replace />;
   }
 
-  if (isPending) {
+  if (isPending && location.pathname !== '/pending') {
     return <Navigate to="/pending" replace />;
   }
 
-  if (isAdmin && window.location.pathname !== '/admin') {
-    return <Navigate to="/admin" replace />;
-  }
-
-  if (!isAdmin && window.location.pathname === '/admin') {
+  if (!isPending && location.pathname === '/pending') {
     return <Navigate to="/" replace />;
   }
 

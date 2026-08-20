@@ -36,7 +36,7 @@ modelRegistry:
       maxDurationSeconds: 8
       supportedAspectRatios: ["16:9", "9:16"]
       supportedRegions: ["global"]
-      costPerSecondUsd: 0.01
+      costPerSecondUsd: 0.0375
       costCurrency: "USD"
       capabilities: ["text_to_video", "image_to_video", "reference_conditioning", "native_audio", "fast_generation"]
       defaultTimeoutSeconds: 300
@@ -47,7 +47,7 @@ modelRegistry:
       maxDurationSeconds: 8
       supportedAspectRatios: ["16:9", "9:16"]
       supportedRegions: ["global"]
-      costPerSecondUsd: 0.04
+      costPerSecondUsd: 0.25
       costCurrency: "USD"
       capabilities: ["text_to_video", "image_to_video", "reference_conditioning", "native_audio", "high_fidelity", "first_last_frame", "extend"]
       defaultTimeoutSeconds: 300
@@ -86,7 +86,7 @@ modelRegistry:
       defaultTimeoutSeconds: 120
 
 router:
-  systemDefaultPriority: ["runway-gen3", "kie-veo3-fast", "kie-veo3-quality", "kie-veo3-lite"]
+  systemDefaultPriority: ["kie-veo3-fast", "kie-veo3-quality", "kie-veo3-lite", "runway-gen3"]
   eligibilityCheckEnabled: true
 
 admission:
@@ -128,10 +128,10 @@ admission:
 
 dispatch:
   defaultTimeouts:
-    kie-veo3-fast: 300
-    kie-veo3-quality: 300
-    kie-veo3-lite: 300
-    runway-gen3: 180
+    kie-veo3-fast: 600
+    kie-veo3-quality: 600
+    kie-veo3-lite: 600
+    runway-gen3: 300
     luma-ray2: 120
   watchdogPollIntervalMs: 30000
   watchdogMaxWaitMs: 600000

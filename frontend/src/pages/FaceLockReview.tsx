@@ -3,18 +3,14 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeftIcon,
   CheckCircleIcon,
-  XCircleIcon,
   ArrowPathIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  EyeIcon,
   ExclamationTriangleIcon,
-  ArrowRightOnRectangleIcon,
 } from '@heroicons/react/24/outline';
-import { useStory, useFaceLockResults, useCharacterConsistencyReport, useRegenerateShot } from '../hooks/useStories';
+import { useStory, useRegenerateShot } from '../hooks/useStories';
 import { useUIStore, useNotifications } from '../store/uiStore';
 import { StatusBadge } from '../components/ShotCard';
-import { Modal, ConfirmDialog, AlertDialog } from '../components/Modal';
+import { AlertDialog } from '../components/Modal';
+import { ChatEntryButton, ProactiveToast } from '../components';
 import type { Shot, FaceLockResult } from '../types/api';
 import { clsx } from 'clsx';
 import { getUserId } from '../utils/userId';
@@ -60,16 +56,16 @@ export function FaceLockReview() {
 
   const storyData = story;
   const shots = storyData.shotPlan || [];
-  const characterNames: string[] = shots.flatMap(s => (s.characterNames || []));
+  const characterNames: string[] = shots.flatMap((s: Shot) => (s.characterNames || []));
   const characters: string[] = [...new Set(characterNames)];
 
   // Get all Face-Lock results grouped by character
   const faceLockResults = characters.map(charName => ({
     characterName: charName,
-    results: shots.flatMap(shot =>
+    results: shots.flatMap((shot: Shot) =>
       (shot.faceLockResults || [])
-        .filter(fl => fl.characterName === charName)
-        .map(fl => ({ ...fl, shotId: shot.id, shotOrder: shot.orderIndex, shotDescription: shot.visualDescription }))
+        .filter((fl: FaceLockResult) => fl.characterName === charName)
+        .map((fl: FaceLockResult) => ({ ...fl, shotId: shot.id, shotOrder: shot.orderIndex, shotDescription: shot.visualDescription }))
     ),
   }));
 
@@ -95,6 +91,14 @@ export function FaceLockReview() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Proactive Toast */}
+      <ProactiveToast
+        trigger={verificationExhausted ? 'facelock_fail' : null}
+        storyId={storyId}
+        details={verificationExhausted ? { shotId: verificationExhausted.shotId, characterName: verificationExhausted.characterName } : null}
+        onDismiss={() => {}}
+      />
+
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -103,10 +107,11 @@ export function FaceLockReview() {
               <button onClick={() => navigate(`/stories/${storyId}/progress`)} className="btn-ghost p-2">
                 <ArrowLeftIcon className="w-5 h-5" />
               </button>
-              <div>
+              <div className="flex-1">
                 <h1 className="text-lg font-semibold text-gray-900">Face-Lock Review</h1>
                 <p className="text-sm text-gray-500">Character consistency verification across all shots</p>
               </div>
+              <ChatEntryButton storyId={storyId} />
             </div>
 
             <div className="flex items-center gap-3">
@@ -119,7 +124,7 @@ export function FaceLockReview() {
         {characters.length > 0 && (
           <div className="border-t border-gray-200 overflow-x-auto">
             <nav className="flex" aria-label="Character tabs">
-              {characters.map((charName, i) => (
+              {characters.map((charName) => (
                 <button
                   key={charName}
                   onClick={() => setSelectedCharacter(charName)}
@@ -173,7 +178,6 @@ export function FaceLockReview() {
         {/* Cross-Shot Consistency Gallery */}
         {selectedCharacter && (
           <CrossShotConsistencyGallery
-            storyId={storyId}
             characterName={selectedCharacter}
             shots={shots}
           />
@@ -242,11 +246,10 @@ function CharacterFaceLockView({
 
       {/* Shots Grid */}
       <div className="space-y-4">
-        {results.map((result, i) => (
+        {results.map((result) => (
           <FaceLockShotCard
             key={`${result.shotId}-${result.model}`}
             result={result}
-            index={i}
             onRetry={onRetry}
             onExhausted={onExhausted}
             isRegenerating={regenerating === result.shotId}
@@ -265,13 +268,11 @@ function CharacterFaceLockView({
 
 function FaceLockShotCard({
   result,
-  index,
   onRetry,
   onExhausted,
   isRegenerating,
 }: {
   result: FaceLockResult & { shotId: string; shotOrder: number; shotDescription: string };
-  index: number;
   onRetry: (shotId: string, characterName: string) => void;
   onExhausted: (data: { shotId: string; characterName: string }) => void;
   isRegenerating: boolean;
@@ -390,11 +391,9 @@ function FaceLockShotCard({
 }
 
 function CrossShotConsistencyGallery({
-  storyId,
   characterName,
   shots,
 }: {
-  storyId: string;
   characterName: string;
   shots: Shot[];
 }) {

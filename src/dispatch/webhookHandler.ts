@@ -5,7 +5,7 @@
  * Implements FR-018, EC-007, EC-008
  */
 
-import { getAdapter } from '../router/modelAdapter.js';
+import { getAdapter, getAllAdapters } from '../router/modelAdapter.js';
 import { query } from '../shared/db.js';
 import { config } from '../shared/config.js';
 import { shotStateMachine, emitShotStateChange, storyStateMachine } from '../shared/events.js';
@@ -18,6 +18,7 @@ import {
   triggerFaceLockRegeneration
 } from '../verification/faceLockVerification.js';
 import { getCharacterReferences } from '../ingestion/characterService.js';
+import { mergeStoryShots } from '../merger/merger.js';
 import type { WebhookPayload, GenerationResult, DispatchRecord, ShotStatus, CharacterRegistryEntry } from '../shared/types.js';
 // Metrics
 import {
@@ -51,8 +52,9 @@ export async function handleWebhook(
   const webhookStart = Date.now();
   const { skipVerification = false } = options;
 
-  // 1. Get adapter for provider
-  const adapter = getAdapter(provider);
+  // 1. Get adapter for provider (adapters registered by modelId, so find by provider)
+  const adapters = getAllAdapters();
+  const adapter = adapters.find(a => a.provider === provider);
   if (!adapter) {
     webhookUnrecognizedTotal.inc({ provider });
     return { success: false, status: 'unrecognized', error: `Unknown provider: ${provider}` };
@@ -273,7 +275,7 @@ async function logUnrecognizedWebhook(provider: string, payload: WebhookPayload)
 /**
  * Store Face-Lock verification data for post-generation audit (Phase 5)
  */
-async function storeFaceLockVerificationData(shotId: string, generationResult: GenerationResult): Promise<void> {
+export async function storeFaceLockVerificationData(shotId: string, generationResult: GenerationResult): Promise<void> {
   const shotResult = await query(
     `SELECT s.characters, s.story_id FROM shots s WHERE s.id = $1`,
     [shotId]
@@ -373,8 +375,6 @@ async function getCharacterReferencesForShot(shotId: string): Promise<CharacterR
     `SELECT s.characters, s.story_id FROM shots s WHERE s.id = $1`,
     [shotId]
   );
-
-  if (shotResult.rows.length === 0) return [];
 
   const { characters, story_id: storyId } = shotResult.rows[0];
   if (!characters || characters.length === 0) return [];
@@ -491,6 +491,18 @@ async function checkAllShotsAndTriggerPendingMerge(shotId: string): Promise<void
       totalShots: totalNum,
       failedShots: failedNum,
     }, 'system');
+
+    // Auto-merge single-shot stories (skip human approval step)
+    if (totalNum === 1 && completedNum === 1) {
+      console.log(`[Webhook] Single-shot story ${storyId} — auto-triggering merge`);
+      try {
+        await storyStateMachine.transition(storyId, 'approve', { userId: 'system' }, 'system');
+        await mergeStoryShots(storyId);
+        console.log(`[Webhook] Auto-merge completed for story ${storyId}`);
+      } catch (mergeError) {
+        console.error(`[Webhook] Auto-merge failed for story ${storyId}:`, mergeError);
+      }
+    }
   } catch (error) {
     console.error(`[Webhook] Failed to check all shots for story:`, error);
   }

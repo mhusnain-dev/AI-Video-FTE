@@ -134,7 +134,9 @@ export abstract class BaseConsumer {
     );
 
     if (messages.length === 0) {
-      // No messages, maybe claim stalled
+      // No messages, brief pause to avoid tight-polling
+      await this.sleep(1000);
+      // Maybe claim stalled
       if (this.options.claimStalled) {
         await this.claimStalledMessages();
       }

@@ -1,7 +1,7 @@
 import { clsx } from 'clsx';
 import { useStoryStream } from '../hooks/useStoryStream';
-import { useUIStore, useNotifications } from '../store/uiStore';
-import type { StateChangeEvent, Shot, ShotStatus, StoryStatus } from '../types/api';
+import { useNotifications } from '../store/uiStore';
+import type { Shot, ShotStatus, StoryStatus } from '../types/api';
 
 interface ProgressTimelineProps {
   storyId: string;
@@ -38,20 +38,6 @@ const STATUS_LABELS: Record<string, string> = {
   regenerating: 'Regenerating',
 };
 
-const STATUS_ICONS: Record<string, React.ReactNode> = {
-  planned: '○',
-  awaiting_approval: '⏳',
-  approved: '✓',
-  in_admission: '🔍',
-  admission_passed: '✅',
-  dispatched: '🚀',
-  generating: '⚙️',
-  completed: '✅',
-  failed: '❌',
-  timeout: '⏱️',
-  regenerating: '🔄',
-};
-
 export function ProgressTimeline({
   storyId,
   shots,
@@ -62,7 +48,7 @@ export function ProgressTimeline({
   const [activeShotId, setActiveShotId] = useSet(new Set());
 
   // Use SSE for real-time updates
-  const { lastEvent, isConnected } = useStoryStream({
+  const { isConnected } = useStoryStream({
     storyId,
     onEvent: (event) => {
       if (event.type === 'shot_status' && event.shotId) {

@@ -376,14 +376,7 @@ export class ConsumerManager {
    * Perform graceful shutdown on process signals
    */
   setupSignalHandlers(): void {
-    const shutdown = async () => {
-      console.log('Received shutdown signal, starting graceful shutdown...');
-      await this.stop();
-      process.exit(0);
-    };
-
-    process.on('SIGTERM', shutdown);
-    process.on('SIGINT', shutdown);
+    // Signal handlers are set up in main.ts
   }
 }
 
@@ -441,7 +434,7 @@ export function createConsumerManager(overrides: Partial<ConsumerManagerOptions>
     claimCount: 10,
     claimStalled: true,
     maxConcurrentDispatches: 3,
-    defaultTimeoutSeconds: 300,
+    defaultTimeoutSeconds: 600,
     consumerName: '',
   };
 

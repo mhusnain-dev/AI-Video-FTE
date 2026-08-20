@@ -10,6 +10,7 @@ import {
 import { useStory } from '../hooks/useStories';
 import apiClient from '../api/client';
 import { useNotifications } from '../store/uiStore';
+import { ChatEntryButton } from '../components/ChatEntryButton';
 
 export function PromptReview() {
   const { storyId } = useParams<{ storyId: string }>();
@@ -71,12 +72,13 @@ export function PromptReview() {
             <button onClick={() => navigate(-1)} className="btn-ghost p-2">
               <ArrowLeftIcon className="w-5 h-5" />
             </button>
-            <div>
+            <div className="flex-1">
               <h1 className="text-lg font-semibold text-gray-900">Prompt Review</h1>
               <p className="text-sm text-gray-500">
                 {story?.brief?.narrative?.substring(0, 60)}...
               </p>
             </div>
+            <ChatEntryButton storyId={storyId} />
           </div>
         </div>
       </header>

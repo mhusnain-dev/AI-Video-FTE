@@ -47,7 +47,7 @@ export async function decomposeStoryToShots(brief: StoryBrief): Promise<Decompos
 
   for (let i = 0; i < estimatedShots; i++) {
     const sentenceIndex = Math.min(i, sentences.length - 1);
-    const sentence = sentences[sentenceIndex]?.trim() || `Continuation of scene ${i + 1}`;
+    const sentence = sentences[sentenceIndex].trim();
 
     // Extract characters mentioned in this segment
     const charactersInShot = brief.characterReferences
@@ -139,12 +139,6 @@ export async function createStory(request: CreateStoryRequest): Promise<CreateSt
     throw new Error('Unable to derive shots from narrative');
   }
 
-  // Validate max shot limit (EC-011) - will be checked per model during routing
-  // For now, just warn if excessive
-  if (decomposedShots.length > 50) {
-    console.warn(`Story has ${decomposedShots.length} shots, may exceed model limits`);
-  }
-
   // Create story and shots in transaction
   const storyId = uuidv4();
   const traceId = uuidv4(); // Generate traceId at story creation
@@ -222,7 +216,7 @@ export async function createStory(request: CreateStoryRequest): Promise<CreateSt
           shotPlan.characters,
           shotPlan.keyObjects,
           shotPlan.keyActions,
-          shotPlan.audioCues || null,
+          shotPlan.audioCues,
           shotPlan.styleReferences || null,
           shotPlan.negativePrompts || null,
           shotPlan.transition ? JSON.stringify(shotPlan.transition) : null,
@@ -291,6 +285,7 @@ export async function getStory(storyId: string): Promise<Story | null> {
     modelOverride: row.model_override,
     transition: row.transition ? (typeof row.transition === 'string' ? JSON.parse(row.transition) : row.transition) : undefined,
     status: row.status,
+    errorMessage: row.error_message,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -354,9 +349,9 @@ export async function reviseShotPlan(storyId: string, revisions: ShotPlanRevisio
               id: newShotId,
               storyId,
               order: newOrder,
-              visualDescription: revision.shotData.visualDescription || '',
-              durationSeconds: revision.shotData.durationSeconds || 5,
-              cameraMotion: revision.shotData.cameraMotion || 'static',
+              visualDescription: revision.shotData.visualDescription!,
+              durationSeconds: revision.shotData.durationSeconds!,
+              cameraMotion: revision.shotData.cameraMotion!,
               characters: revision.shotData.characters || [],
               keyObjects: revision.shotData.keyObjects || [],
               keyActions: revision.shotData.keyActions || [],

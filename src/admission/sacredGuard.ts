@@ -63,7 +63,7 @@ async function refreshDenylistCache(): Promise<void> {
   cacheExpiry = Date.now() + CACHE_TTL_MS;
 }
 
-function cosineSimilarity(a: number[], b: number[]): number {
+export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length) return 0;
   let dotProduct = 0;
   let normA = 0;
@@ -208,7 +208,7 @@ export async function checkSacredGuard(request: SacredGuardCheckRequest): Promis
  * In production: use CLIP, DINOv2, or similar vision transformer
  * For now, returns a deterministic hash-based embedding
  */
-async function computeImageEmbedding(imageBase64: string): Promise<number[]> {
+export async function computeImageEmbedding(imageBase64: string): Promise<number[]> {
   // In production, this would call a vision model (CLIP, DINOv2, etc.)
   // For development, create a deterministic embedding from image hash
   const crypto = await import('crypto');

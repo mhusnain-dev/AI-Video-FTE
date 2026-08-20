@@ -39,6 +39,7 @@ import promptReviewRoutes from './generation/promptReviewRoutes.js';
 import adminRoutes from './admin/adminRoutes.js';
 import preferenceRoutes from './preferences/preferenceRoutes.js';
 import projectSettingsRoutes from './projects/projectSettingsRoutes.js';
+import chatRoutes from './chat/chatRoutes.js';
 import { authMiddleware, adminMiddleware } from './auth/authMiddleware.js';
 
 const app = express();
@@ -111,6 +112,9 @@ app.use('/api/stories', authMiddleware, promptReviewRoutes);
 // User Preferences & Project Settings
 app.use('/api', authMiddleware, preferenceRoutes);
 app.use('/api', authMiddleware, projectSettingsRoutes);
+
+// Chat Co-Working routes — require JWT auth middleware
+app.use('/api', authMiddleware, chatRoutes);
 
 // Admin routes — require JWT + admin role
 app.use('/admin', authMiddleware, adminMiddleware, adminRoutes);
@@ -204,11 +208,10 @@ export async function gracefulShutdown(): Promise<void> {
   await closeEventBus();
 
   console.log('Graceful shutdown complete');
-  process.exit(0);
 }
 
-// Handle signals
-process.on('SIGTERM', gracefulShutdown);
-process.on('SIGINT', gracefulShutdown);
+// Handle signals - main.ts handles these
+// process.on('SIGTERM', gracefulShutdown);
+// process.on('SIGINT', gracefulShutdown);
 
 export { app };

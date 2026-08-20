@@ -48,7 +48,7 @@ async function waitForService(service: { host: string; port: number; name: strin
 async function initVault(): Promise<void> {
   const vaultAddr = process.env.VAULT_ADDR || 'http://localhost:8201';
   const vaultToken = process.env.VAULT_TOKEN || 'root';
-  const transitKey = process.env.VAULT_TRANSIT_KEY || 'biometric-encryption-dev';
+  const transitKey = process.env.VAULT_TRANSIT_KEY || 'biometric-encryption';
 
   try {
     const enableRes = await fetch(`${vaultAddr}/v1/sys/mounts/transit`, {

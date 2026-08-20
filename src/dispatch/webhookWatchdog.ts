@@ -1,25 +1,16 @@
 /**
  * Webhook Watchdog Service
- * Automatically recovers lost/delayed completion notifications by polling providers
- * Implements FR-019, CL-008, AC-017
- * No duplicate generation or charge occurs (EC-008)
+ * Polls providers for stuck dispatches and recovers completions.
+ * No fallback on timeout — prevents credit waste.
  */
 
 import { config } from '../shared/config.js';
 import { query } from '../shared/db.js';
 import { getAdapter, initializeAdapters } from '../router/modelAdapter.js';
 import { handleWebhook } from './webhookHandler.js';
-import { shotStateMachine, emitShotStateChange } from '../shared/events.js';
-import { selectModelForShot } from '../router/autoRouter.js';
-import { compilePrompt } from '../generation/promptCompiler.js';
-import { dispatchWithFallback } from './shotDispatcher.js';
 import { cancelDispatchTimeout } from './timeoutManager.js';
-import type { DispatchRecord, ModelCapabilities, ShotPlan, CompiledPrompt } from '../shared/types.js';
-// Metrics
-import {
-  watchdogCheckTotal,
-  watchdogStuckDispatchesGauge,
-} from '../shared/metrics.js';
+import type { DispatchRecord } from '../shared/types.js';
+import { watchdogCheckTotal, watchdogStuckDispatchesGauge } from '../shared/metrics.js';
 
 export interface WatchdogOptions {
   /** Override poll interval (ms) */
@@ -41,7 +32,7 @@ export interface WatchdogResult {
 /**
  * Get default timeout for a model from config
  */
-function getModelTimeout(modelId: string): number {
+export function getModelTimeout(modelId: string): number {
   const timeouts = config.dispatch?.defaultTimeouts || {};
   return timeouts[modelId] || 120; // Default 120s
 }
@@ -62,7 +53,7 @@ function getPollIntervalMs(): number {
 
 /**
  * Find all stuck dispatch records that need recovery
- * Derives expected_completion_at from dispatched_at + model timeout (no new column needed)
+ * Also finds in-progress dispatches (older than 60s) for proactive status polling
  */
 async function findStuckDispatches(): Promise<DispatchRecord[]> {
   const result = await query(
@@ -72,11 +63,8 @@ async function findStuckDispatches(): Promise<DispatchRecord[]> {
        AND dr.webhook_received_at IS NULL
        AND dr.dispatched_at IS NOT NULL
        AND dr.provider_request_id IS NOT NULL
-       AND (
-         dr.dispatched_at +
-         (COALESCE($1::jsonb->>dr.model_id, $2)::int * interval '1 second')
-       ) < NOW()`,
-    [JSON.stringify(config.dispatch?.defaultTimeouts || {}), '120']
+       AND dr.dispatched_at < NOW() - INTERVAL '60 seconds'`,
+    []
   );
 
   const stuckDispatches = result.rows.map((row: any) => ({
@@ -110,84 +98,6 @@ function hasExceededMaxWait(dispatch: DispatchRecord): boolean {
 }
 
 /**
- * Process a single stuck dispatch
- */
-async function processStuckDispatch(
-  dispatch: DispatchRecord,
-  shot: ShotPlan,
-  promptOutput: CompiledPrompt,
-  primaryModel: ModelCapabilities,
-  fallbackModels: ModelCapabilities[]
-): Promise<{ action: 'recovered' | 'timed_out' | 'failed' | 'still_processing'; error?: string }> {
-  // Ensure adapters initialized
-  await initializeAdapters();
-
-  const adapter = getAdapter(dispatch.modelId);
-  if (!adapter) {
-    return { action: 'failed', error: `No adapter for model ${dispatch.modelId}` };
-  }
-
-  // Check status with provider
-  let statusResult;
-  try {
-    statusResult = await adapter.checkStatus(dispatch.providerRequestId!);
-  } catch (error) {
-    return { action: 'failed', error: `Status check failed: ${error instanceof Error ? error.message : 'Unknown error'}` };
-  }
-
-  // Handle provider status
-  switch (statusResult.status) {
-    case 'completed': {
-      // Reuse webhook handler logic for idempotent processing (EC-008)
-      if (statusResult.result) {
-        const webhookPayload = {
-          provider: adapter.provider,
-          requestId: dispatch.providerRequestId!,
-          status: 'completed' as const,
-          result: statusResult.result,
-          timestamp: new Date(),
-          signature: '', // Not needed for recovery path
-        };
-
-        const handlerResult = await handleWebhook(adapter.provider, webhookPayload, { skipVerification: true });
-        if (handlerResult.success) {
-          return { action: 'recovered' };
-        }
-        return { action: 'failed', error: handlerResult.error };
-      }
-      return { action: 'failed', error: 'Completed but no result data' };
-    }
-
-    case 'failed': {
-      // Mark dispatch as failed
-      await query(
-        `UPDATE dispatch_records SET status = 'failed', completed_at = NOW(), error_message = $2 WHERE id = $1`,
-        [dispatch.id, statusResult.error || 'Provider reported failure']
-      );
-      return { action: 'failed', error: statusResult.error };
-    }
-
-    case 'processing':
-    case 'pending': {
-      // Check if exceeded max wait time
-      if (hasExceededMaxWait(dispatch)) {
-        // Mark as timeout
-        await query(
-          `UPDATE dispatch_records SET status = 'timeout', completed_at = NOW(), error_message = $2 WHERE id = $1`,
-          [dispatch.id, 'Exceeded maximum wait time (10min) for webhook']
-        );
-        return { action: 'timed_out' };
-      }
-      // Still within wait window, leave for next poll
-      return { action: 'still_processing' };
-    }
-
-    default:
-      return { action: 'failed', error: `Unknown provider status: ${statusResult.status}` };
-  }
-}
-
-/**
  * Main watchdog loop - runs continuously or once
  */
 export async function runWatchdog(
@@ -209,93 +119,119 @@ export async function runWatchdog(
       const stuckDispatches = await findStuckDispatches();
       result.checked += stuckDispatches.length;
 
-      // Record check count
       watchdogCheckTotal.inc({ result: 'checked' });
+
+      if (stuckDispatches.length > 0) {
+        console.log(`[Watchdog] Found ${stuckDispatches.length} stuck dispatch(es) to check`);
+      }
+
+      // Initialize adapters once before the loop
+      if (stuckDispatches.length > 0) {
+        await initializeAdapters();
+      }
 
       for (const dispatch of stuckDispatches) {
         try {
-          // Get shot details
-          const shotResult = await query(
-            `SELECT s.*, st.brief FROM shots s JOIN stories st ON s.story_id = st.id WHERE s.id = $1`,
-            [dispatch.shotId]
-          );
-          if (shotResult.rows.length === 0) {
-            result.errors.push(`Shot ${dispatch.shotId} not found for dispatch ${dispatch.id}`);
+          const adapter = getAdapter(dispatch.modelId);
+          if (!adapter) {
+            console.error(`[Watchdog] No adapter for model ${dispatch.modelId}, dispatch ${dispatch.id}`);
             result.failed++;
+            result.errors.push(`No adapter for ${dispatch.modelId}`);
+            continue;
+          }
+
+          console.log(`[Watchdog] Checking dispatch ${dispatch.id.slice(0,8)}, model=${dispatch.modelId}, providerRequestId=${dispatch.providerRequestId?.slice(0,8)}`);
+
+          let statusResult;
+          try {
+            statusResult = await adapter.checkStatus(dispatch.providerRequestId!);
+          } catch (error) {
+            console.error(`[Watchdog] Status check error for ${dispatch.id.slice(0,8)}: ${error instanceof Error ? error.message : 'Unknown'}`);
+            result.errors.push(`Status check failed for ${dispatch.id}: ${error instanceof Error ? error.message : 'Unknown'}`);
+            watchdogCheckTotal.inc({ result: 'error' });
+            continue;
+          }
+
+          console.log(`[Watchdog] Status: ${statusResult.status} for dispatch ${dispatch.id.slice(0,8)}`);
+
+          if (statusResult.status === 'processing' || statusResult.status === 'pending') {
+            if (hasExceededMaxWait(dispatch)) {
+              console.log(`[Watchdog] Dispatch ${dispatch.id.slice(0,8)} exceeded max wait, marking timeout`);
+              await query(
+                `UPDATE dispatch_records SET status = 'timeout', completed_at = NOW(), error_message = $2 WHERE id = $1`,
+                [dispatch.id, 'Exceeded maximum wait time for webhook']
+              );
+              await query(
+                `UPDATE shots SET status = 'failed', error_message = $2, updated_at = NOW() WHERE id = $1`,
+                [dispatch.shotId, 'Generation timed out — provider did not complete in time']
+              );
+            } else {
+              watchdogCheckTotal.inc({ result: 'still_processing' });
+              continue;
+            }
+          }
+
+          if (statusResult.status === 'completed' && statusResult.result) {
+            console.log(`[Watchdog] Recovery: dispatch ${dispatch.id.slice(0,8)} completed, processing via webhook handler`);
+            const webhookPayload = {
+              provider: adapter.provider,
+              requestId: dispatch.providerRequestId!,
+              status: 'completed' as const,
+              result: statusResult.result,
+              timestamp: new Date(),
+              signature: '',
+            };
+            const handlerResult = await handleWebhook(adapter.provider, webhookPayload, { skipVerification: true });
+            if (handlerResult.success) {
+              console.log(`[Watchdog] Recovered dispatch ${dispatch.id.slice(0,8)}: shot ${dispatch.shotId.slice(0,8)} completed`);
+              result.recovered++;
+              watchdogCheckTotal.inc({ result: 'recovered' });
+            } else {
+              console.error(`[Watchdog] Recovery FAILED for ${dispatch.id.slice(0,8)}: ${handlerResult.error}`);
+              result.failed++;
+              result.errors.push(`Recovery failed for ${dispatch.id}: ${handlerResult.error}`);
+              watchdogCheckTotal.inc({ result: 'failed' });
+            }
+            continue;
+          }
+
+          if (statusResult.status === 'failed') {
+            console.log(`[Watchdog] Dispatch ${dispatch.id.slice(0,8)} failed: ${statusResult.error}`);
+            await query(
+              `UPDATE dispatch_records SET status = 'failed', completed_at = NOW(), error_message = $2 WHERE id = $1`,
+              [dispatch.id, statusResult.error || 'Provider reported failure']
+            );
+            await query(
+              `UPDATE shots SET status = 'failed', error_message = $2, updated_at = NOW() WHERE id = $1`,
+              [dispatch.shotId, statusResult.error || 'Provider reported failure']
+            );
+            result.failed++;
+            result.errors.push(`Shot ${dispatch.shotId} failed: ${statusResult.error}`);
             watchdogCheckTotal.inc({ result: 'failed' });
             continue;
           }
 
-          const shot = shotResult.rows[0];
-          const primaryModel = {
-            id: dispatch.modelId,
-            // Other fields will be populated from registry
-          } as ModelCapabilities;
-
-          // Get fallback models from router
-          const routingDecision = await selectModelForShot(shot.user_id, {
-            // Extract requirements from shot
-            resolution: shot.resolution,
-            aspectRatio: shot.aspectRatio,
-            durationSeconds: shot.durationSeconds,
-            requiredCapabilities: ['text_to_video'],
-          });
-          const fallbackModels = routingDecision.fallbackModels;
-
-          // Compile prompt for this shot (need characters)
-          const characterResult = await query(
-            `SELECT * FROM characters WHERE story_id = $1`,
-            [shot.story_id]
+          // Timeout case — mark shot as failed, do NOT trigger fallback (credit waste)
+          console.log(`[Watchdog] Dispatch ${dispatch.id.slice(0,8)} timed out, marking shot as failed (no fallback)`);
+          await query(
+            `UPDATE dispatch_records SET status = 'timeout', completed_at = NOW(), error_message = $2 WHERE id = $1`,
+            [dispatch.id, 'Generation timed out — no result received']
           );
-          const characters = characterResult.rows;
-
-          const promptOutput = await compilePrompt(
-            shot as ShotPlan,
-            characters,
-            primaryModel,
-            { maxPromptLength: 4000 }
+          await query(
+            `UPDATE shots SET status = 'failed', error_message = $2, updated_at = NOW() WHERE id = $1`,
+            [dispatch.shotId, 'Generation timed out — no result received from provider']
           );
-
-          const processResult = await processStuckDispatch(
-            dispatch,
-            shot as ShotPlan,
-            promptOutput,
-            primaryModel,
-            fallbackModels
-          );
-
-          switch (processResult.action) {
-            case 'recovered':
-              result.recovered++;
-              watchdogCheckTotal.inc({ result: 'recovered' });
-              break;
-            case 'timed_out':
-              result.timedOut++;
-              watchdogCheckTotal.inc({ result: 'timed_out' });
-              // Trigger fallback for timeout
-              await triggerFallback(dispatch, shot as ShotPlan, promptOutput, primaryModel, fallbackModels);
-              break;
-            case 'failed':
-              result.failed++;
-              watchdogCheckTotal.inc({ result: 'failed' });
-              if (processResult.error) {
-                result.errors.push(`Dispatch ${dispatch.id}: ${processResult.error}`);
-              }
-              // Trigger fallback for failure
-              await triggerFallback(dispatch, shot as ShotPlan, promptOutput, primaryModel, fallbackModels);
-              break;
-            case 'still_processing':
-              // Leave for next poll
-              watchdogCheckTotal.inc({ result: 'still_processing' });
-              break;
-          }
+          result.timedOut++;
+          watchdogCheckTotal.inc({ result: 'timed_out' });
         } catch (error) {
+          console.error(`[Watchdog] Error processing dispatch ${dispatch.id.slice(0,8)}:`, error);
           result.failed++;
           result.errors.push(`Dispatch ${dispatch.id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
           watchdogCheckTotal.inc({ result: 'error' });
         }
       }
     } catch (error) {
+      console.error(`[Watchdog] Cycle error:`, error);
       result.errors.push(`Watchdog cycle error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       watchdogCheckTotal.inc({ result: 'error' });
     }
@@ -307,40 +243,12 @@ export async function runWatchdog(
   }
 
   // Continuous mode - run on interval
-  console.log(`Webhook watchdog started (poll interval: ${pollInterval}ms)`);
+  // Note: main.ts startWatchdogLoop() handles interval scheduling and initial log
 
   // This would be managed by an external scheduler/process manager
   // For now, run once and return (continuous mode handled by infrastructure)
   await runCycle();
   return result;
-}
-
-/**
- * Trigger fallback for a failed/timed-out dispatch
- */
-async function triggerFallback(
-  dispatch: DispatchRecord,
-  shot: ShotPlan,
-  promptOutput: CompiledPrompt,
-  primaryModel: ModelCapabilities,
-  fallbackModels: ModelCapabilities[]
-): Promise<void> {
-  try {
-    const fallbackResult = await dispatchWithFallback(
-      shot,
-      promptOutput,
-      primaryModel,
-      fallbackModels,
-      { skipAdmission: true } // Already passed admission
-    );
-
-    if (!fallbackResult.success) {
-      // All fallbacks failed - shot will be handled by Phase 4.6 (all-models-failed)
-      console.error(`All fallbacks failed for shot ${shot.id}: ${fallbackResult.error}`);
-    }
-  } catch (error) {
-    console.error(`Fallback trigger error for shot ${shot.id}:`, error);
-  }
 }
 
 /**

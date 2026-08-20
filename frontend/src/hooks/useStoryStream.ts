@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { StateChangeEvent, Story, Shot } from '../types/api';
-import { storyKeys, shotKeys, characterKeys } from './useStories';
+import type { StateChangeEvent, Shot } from '../types/api';
+import { storyKeys, shotKeys } from './useStories';
 
 interface UseStoryStreamOptions {
   storyId: string;

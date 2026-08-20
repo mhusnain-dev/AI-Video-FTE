@@ -43,7 +43,7 @@ export class CommandHandlerConsumer extends BaseConsumer {
 
     this.handlerOptions = {
       maxConcurrentDispatches: options.maxConcurrentDispatches ?? 3,
-      defaultTimeoutSeconds: options.defaultTimeoutSeconds ?? 300,
+      defaultTimeoutSeconds: options.defaultTimeoutSeconds ?? 600,
     };
   }
 
@@ -84,14 +84,26 @@ export class CommandHandlerConsumer extends BaseConsumer {
   private async handleApprove(payload: StoryCommandPayload): Promise<void> {
     const { storyId, userId, shotIds, force = false } = payload;
 
-    // Fetch the story with its shot plan
-    const storyResult = await query(
+    // Fetch the story with its shot plan - retry for transaction visibility
+    console.log(`[CMD DEBUG] handleApprove: fetching story ${storyId}`);
+    let storyResult = await query(
       `SELECT * FROM stories WHERE id = $1`,
       [storyId]
     );
 
+    // Retry once after short delay for transaction commit visibility
     if (storyResult.rows.length === 0) {
-      console.error(`Story not found: ${storyId}`);
+      console.warn(`[CMD DEBUG] Story not found, waiting 500ms for transaction visibility...`);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      storyResult = await query(
+        `SELECT * FROM stories WHERE id = $1`,
+        [storyId]
+      );
+      console.log(`[CMD DEBUG] Retry query returned ${storyResult.rows.length} rows`);
+    }
+
+    if (storyResult.rows.length === 0) {
+      console.error(`Story not found after retry: ${storyId}`);
       return;
     }
 
@@ -175,12 +187,16 @@ export class CommandHandlerConsumer extends BaseConsumer {
         });
 
         // Dispatch shot
-        await dispatchShot(shot, promptOutput, model, {
+        const dispatchResult = await dispatchShot(shot, promptOutput, model, {
           timeoutSeconds: self.handlerOptions.defaultTimeoutSeconds,
           skipAdmission: false, // Run admission for fresh dispatches
         });
 
-        console.log(`Dispatched shot ${shot.id} to model ${model.id}`);
+        if (dispatchResult.success) {
+          console.log(`Dispatched shot ${shot.id} to model ${model.id}`);
+        } else {
+          console.error(`Shot ${shot.id} dispatch failed: ${dispatchResult.error}`);
+        }
       } catch (error) {
         console.error(`Failed to dispatch shot ${shot.id}:`, error);
         // Error will be captured by dispatchShot and shot status updated
@@ -212,14 +228,23 @@ export class CommandHandlerConsumer extends BaseConsumer {
 
     console.log(`Partial regeneration for story ${storyId}, shots: ${shotIds.join(', ')}`);
 
-    // Fetch story
-    const storyResult = await query(
+    // Fetch story - retry for transaction visibility
+    let storyResult = await query(
       `SELECT * FROM stories WHERE id = $1`,
       [storyId]
     );
 
     if (storyResult.rows.length === 0) {
-      console.error(`Story not found: ${storyId}`);
+      console.warn(`[CMD DEBUG] Story not found, waiting 500ms for transaction visibility...`);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      storyResult = await query(
+        `SELECT * FROM stories WHERE id = $1`,
+        [storyId]
+      );
+    }
+
+    if (storyResult.rows.length === 0) {
+      console.error(`Story not found after retry: ${storyId}`);
       return;
     }
 
@@ -313,7 +338,7 @@ export function createCommandHandlerConsumer(
     claimCount: 10,
     claimStalled: true,
     maxConcurrentDispatches: 3,
-    defaultTimeoutSeconds: 300,
+    defaultTimeoutSeconds: 600,
   };
 
   return new CommandHandlerConsumer({ ...defaults, ...overrides });

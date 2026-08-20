@@ -2,7 +2,7 @@
  * Unit tests for Shot Dispatcher (Phase 4.2)
  */
 
-import { dispatchShot, dispatchWithFallback, isShotDispatched, getDispatchRecord } from '../../../src/dispatch/shotDispatcher';
+import { dispatchShot, dispatchWithFallback, isShotDispatched, getDispatchRecord, updateDispatchRecord } from '../../../src/dispatch/shotDispatcher';
 import type { ShotPlan, ModelCapabilities, CompiledPrompt } from '../../../src/shared/types';
 
 jest.mock('../../../src/shared/db', () => ({
@@ -220,6 +220,42 @@ describe('Shot Dispatcher', () => {
       expect(runAdmissionPipeline).toHaveBeenCalled();
     });
 
+    test('falls back to Admission failed when gate reason is undefined', async () => {
+      runAdmissionPipeline.mockResolvedValue({
+        passed: false,
+        blockedAtGate: 'moderation',
+        results: {
+          moderation: { blocked: true },
+          sacredGuard: { blocked: false },
+          costGuard: { blocked: false, paused: false },
+          rateLimit: { allowed: true },
+        },
+      });
+
+      const result = await dispatchShot(mockShot, mockPromptOutput, mockModel);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Admission failed');
+    });
+
+    test('converts snake_case gate name to camelCase for results lookup', async () => {
+      runAdmissionPipeline.mockResolvedValue({
+        passed: false,
+        blockedAtGate: 'sacred_guard',
+        results: {
+          sacredGuard: { blocked: true, reason: 'Sacred entity detected' },
+          moderation: { blocked: false },
+          costGuard: { blocked: false, paused: false },
+          rateLimit: { allowed: true },
+        },
+      });
+
+      const result = await dispatchShot(mockShot, mockPromptOutput, mockModel);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Sacred entity detected');
+    });
+
     test('skips admission when option provided', async () => {
       // Mock story query for resolution/aspectRatio
       mockQuery
@@ -241,6 +277,15 @@ describe('Shot Dispatcher', () => {
       expect(result.error).toBe('Network error');
     });
 
+    test('handles non-Error throw as Unknown dispatch error', async () => {
+      mockAdapter.dispatch.mockRejectedValue('string error');
+
+      const result = await dispatchShot(mockShot, mockPromptOutput, mockModel);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Unknown dispatch error');
+    });
+
     test('creates dispatch record with correct data', async () => {
       // Mock story query for resolution/aspectRatio
       mockQuery
@@ -254,6 +299,18 @@ describe('Shot Dispatcher', () => {
         expect.stringContaining('INSERT INTO dispatch_records'),
         expect.arrayContaining([expect.any(String), 'shot-1', 'veo3-low'])
       );
+    });
+
+    test('uses model maxDurationSeconds when shot duration is falsy', async () => {
+      const shotWithoutDuration = { ...mockShot, durationSeconds: 0 } as ShotPlan;
+
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ aspect_ratio: '16:9', resolution: '1080p' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'dispatch-1', shot_id: 'shot-1', model_id: 'veo3-low', status: 'pending' }] });
+
+      const result = await dispatchShot(shotWithoutDuration, mockPromptOutput, mockModel);
+
+      expect(result.success).toBe(true);
     });
   });
 
@@ -368,6 +425,155 @@ describe('Shot Dispatcher', () => {
       const result = await getDispatchRecord('shot-1');
 
       expect(result).toBeNull();
+    });
+  });
+
+  describe('updateDispatchRecord', () => {
+    test('includes webhookReceivedAt when provided', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      await updateDispatchRecord('dispatch-1', {
+        webhookReceivedAt: new Date('2026-01-15T12:00:00Z'),
+      });
+
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.stringContaining('webhook_received_at'),
+        expect.arrayContaining([expect.any(Date)])
+      );
+    });
+
+    test('includes webhookPayload when provided', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      await updateDispatchRecord('dispatch-1', {
+        webhookPayload: { event: 'completed', status: 'success' },
+      });
+
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.stringContaining('webhook_payload'),
+        expect.arrayContaining([expect.any(String)])
+      );
+    });
+
+    test('includes both webhook fields when both provided', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      await updateDispatchRecord('dispatch-1', {
+        webhookReceivedAt: new Date('2026-01-15T12:00:00Z'),
+        webhookPayload: { event: 'completed' },
+      });
+
+      expect(mockQuery).toHaveBeenCalledWith(
+        expect.stringContaining('webhook_received_at'),
+        expect.arrayContaining([expect.any(Date), expect.any(String)])
+      );
+    });
+
+    test('skips update when no fields provided', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+
+      await updateDispatchRecord('dispatch-1', {});
+
+      expect(mockQuery).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('dispatchWithFallback - uncovered branches', () => {
+    const shortDurationModel: ModelCapabilities = {
+      ...mockModel,
+      id: 'short-model',
+      name: 'Short Duration Model',
+      maxDurationSeconds: 3,
+    };
+
+    test('skips fallback model that does not support shot duration requirements', async () => {
+      // Primary fails
+      mockAdapter.dispatch.mockRejectedValueOnce(new Error('Primary failed'));
+
+      const longShot: ShotPlan = { ...mockShot, durationSeconds: 8 };
+
+      // Mock query calls needed for primary dispatch + fallback dispatch
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ aspect_ratio: '16:9', resolution: '1080p' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'dispatch-primary', shot_id: 'shot-1', model_id: 'veo3-low', status: 'pending' }] })
+        .mockResolvedValueOnce({ rows: [] }) // update shot status to failed
+        .mockResolvedValueOnce({ rows: [{ aspect_ratio: '16:9', resolution: '1080p' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'dispatch-fallback', shot_id: 'shot-1', model_id: 'short-model', status: 'pending' }] });
+
+      // Fallback model that doesn't support duration
+      const fallbackWithShortDuration = {
+        ...shortDurationModel,
+        maxDurationSeconds: 3,
+      };
+
+      const fallbackAdapter = { ...mockAdapter, modelId: 'short-model', dispatch: jest.fn() };
+      fallbackAdapter.dispatch.mockResolvedValue({ providerRequestId: 'fallback-req-789', estimatedCompletionMs: 180000 });
+
+      // First call returns mockAdapter (primary), second call returns fallback adapter
+      getAdapter.mockReturnValueOnce(mockAdapter).mockReturnValueOnce(fallbackAdapter);
+
+      const fallbackPromptOutput: CompiledPrompt = {
+        ...mockPromptOutput,
+        modelId: 'short-model',
+      };
+
+      compilePrompt.mockResolvedValue(fallbackPromptOutput);
+
+      const result = await dispatchWithFallback(
+        longShot,
+        mockPromptOutput,
+        mockModel,
+        [fallbackWithShortDuration]
+      );
+
+      // Should fail since fallback doesn't support the duration
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('All models failed for shot');
+    });
+
+    test('returns all-models-failed when every fallback model fails', async () => {
+      // Primary fails
+      mockAdapter.dispatch.mockRejectedValueOnce(new Error('Primary failed'));
+
+      // Fallback also fails
+      const failingFallbackAdapter = {
+        ...mockAdapter,
+        modelId: 'failing-model',
+        dispatch: jest.fn(),
+      };
+      failingFallbackAdapter.dispatch.mockRejectedValue(new Error('Fallback also failed'));
+
+      const failingFallbackModel: ModelCapabilities = {
+        ...mockModel,
+        id: 'failing-model',
+        name: 'Failing Model',
+      };
+
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ aspect_ratio: '16:9', resolution: '1080p' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'dispatch-primary', shot_id: 'shot-1', model_id: 'veo3-low', status: 'pending' }] })
+        .mockResolvedValueOnce({ rows: [] }) // update shot status to failed
+        .mockResolvedValueOnce({ rows: [{ aspect_ratio: '16:9', resolution: '1080p' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'dispatch-fallback', shot_id: 'shot-1', model_id: 'failing-model', status: 'pending' }] })
+        .mockResolvedValueOnce({ rows: [] }) // update fallback dispatch record
+        .mockResolvedValueOnce({ rows: [] }); // update shot status to failed
+
+      getAdapter.mockReturnValueOnce(mockAdapter).mockReturnValueOnce(failingFallbackAdapter);
+
+      compilePrompt.mockResolvedValue({
+        ...mockPromptOutput,
+        modelId: 'failing-model',
+      });
+
+      const result = await dispatchWithFallback(
+        mockShot,
+        mockPromptOutput,
+        mockModel,
+        [failingFallbackModel]
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('All models failed for shot');
     });
   });
 });

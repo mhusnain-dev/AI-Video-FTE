@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeftIcon,
-  ArrowPathIcon,
   PlusIcon,
   TrashIcon,
   PencilIcon,
@@ -14,7 +13,7 @@ import { useUIStore, useNotifications } from '../store/uiStore';
 import { StatusBadge } from '../components/ShotCard';
 import type { Shot, ShotPlanRevision } from '../types/api';
 import { clsx } from 'clsx';
-import { getUserId } from '../utils/userId';
+
 
 function GripHandle({ className = '' }: { className?: string }) {
   return (
@@ -36,8 +35,6 @@ export function ShotPlanEditor() {
 
   const { data: story, isLoading, refetch } = useStory(storyId || '');
   const revisePlan = useReviseShotPlan();
-
-  const userId = getUserId();
 
   useEffect(() => {
     if (story) {
@@ -224,7 +221,7 @@ export function ShotPlanEditor() {
           </div>
         ) : (
           <div className="space-y-4">
-            {shots.map((shot, index) => (
+            {shots.map((shot: Shot, index: number) => (
               <EditShotCard
                 key={shot.id}
                 shot={shot}

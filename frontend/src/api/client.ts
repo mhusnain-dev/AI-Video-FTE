@@ -1,6 +1,38 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import type { ApiResponse, PaginatedResponse, StateChangeEvent } from '../types/api';
 
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: string;
+  action?: any;
+}
+
+export interface ChatContext {
+  mentions?: { shots?: string[]; characters?: string[] };
+  temperature: number;
+  model?: 'gemini' | 'nvidia';
+}
+
+export interface ConversationSummary {
+  storyId: string;
+  summaries: Array<{
+    timestamp: string;
+    summary: string;
+    actions: any[];
+  }>;
+  updatedAt: string | null;
+}
+
+export interface ChatAction {
+  type: 'update_shot_prompt' | 'update_shot_camera' | 'update_shot_duration' | 'update_shot_transition';
+  shotId: string;
+  field: string;
+  before: string;
+  after: string;
+  status: 'proposed' | 'applied' | 'dismissed';
+}
+
 // Use ?? to allow empty string (means relative URLs through Vite proxy)
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -399,12 +431,91 @@ class ApiClient {
   }
 
   async updateUserPreferences(userId: string, preferences: Record<string, unknown>): Promise<ApiResponse<{ success: boolean }>> {
-    const response = await this.client.put<ApiResponse<{ success: boolean }>>(`/api/users/${userId}/preferences`, preferences);
+    const response = await this.client.put<ApiResponse<{ success: boolean }>>(`/api/users/${userId}/preferences`, { preferences });
     return response.data;
   }
 
   async resetUserPreferences(userId: string): Promise<ApiResponse<{ success: boolean }>> {
     const response = await this.client.delete<ApiResponse<{ success: boolean }>>(`/api/users/${userId}/preferences`);
+    return response.data;
+  }
+
+  // ============================================
+  // Chat Co-Working
+  // ============================================
+  async *sendChatMessage(
+    storyId: string,
+    message: string,
+    context?: ChatContext
+  ): AsyncGenerator<{ token?: string; action?: ChatAction; error?: string; complete?: boolean; summary?: any }> {
+    const token = localStorage.getItem('auth_token');
+    const response = await fetch(`${API_BASE_URL}/api/stories/${storyId}/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        message,
+        temperature: context?.temperature,
+        mentions: context?.mentions,
+        model: context?.model ?? 'gemini',
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      yield { error: `Chat request failed: ${response.status} ${errorText}` };
+      return;
+    }
+
+    if (!response.body) {
+      yield { error: 'No response body' };
+      return;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const eventMatch = line.match(/^event: (.+)$/m);
+          const dataMatch = line.match(/^data: (.+)$/m);
+          if (eventMatch && dataMatch) {
+            const eventType = eventMatch[1].trim();
+            try {
+              const data = JSON.parse(dataMatch[1].trim());
+              if (eventType === 'token') {
+                yield { token: data.token };
+              } else if (eventType === 'action') {
+                yield { action: data };
+              } else if (eventType === 'complete') {
+                yield { complete: true, summary: data.summary, action: data.action };
+              } else if (eventType === 'error') {
+                yield { error: data.error };
+              }
+            } catch {
+              // Ignore parse errors
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  async getConversation(storyId: string): Promise<ApiResponse<ConversationSummary>> {
+    const response = await this.client.get<ApiResponse<ConversationSummary>>(`/api/stories/${storyId}/conversation`);
     return response.data;
   }
 }

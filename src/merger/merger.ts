@@ -137,7 +137,8 @@ export async function mergeStoryShots(
   const resolution = options.resolution || story.resolution;
   const aspectRatio = story.aspect_ratio;
 
-  const workDir = options.workDir || `/tmp/merge-${storyId}-${crypto.randomUUID()}`;
+  const baseOutputDir = config.merger.outputDir || '/tmp';
+  const workDir = options.workDir || `${baseOutputDir}/merge-${storyId}-${crypto.randomUUID()}`;
   const outputPath = `${workDir}/output.mp4`;
 
   // Download shot videos if they're URLs

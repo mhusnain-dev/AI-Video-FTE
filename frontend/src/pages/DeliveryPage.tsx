@@ -4,20 +4,11 @@ import {
   ArrowLeftIcon,
   ArrowDownTrayIcon,
   PlayIcon,
-  PauseIcon,
   CheckCircleIcon,
-  XCircleIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   ArrowDownIcon,
   DocumentTextIcon,
-  MusicalNoteIcon,
   Cog6ToothIcon,
-  EyeIcon,
-  EyeSlashIcon,
   ExclamationTriangleIcon,
-  ScissorsIcon as ScissorsIconType,
-  PlusCircleIcon as PlusCircleIconType,
 } from '@heroicons/react/24/outline';
 import { useDelivery, useMergeStory, usePartialRegenerate, useDownloadUrl } from '../hooks/useStories';
 import { useStory } from '../hooks/useStories';
@@ -26,8 +17,10 @@ import { StatusBadge } from '../components/ShotCard';
 import { MergeApprovalDialog } from '../components/MergeApprovalDialog';
 import { Modal, ConfirmDialog } from '../components/Modal';
 import { VideoPlayer } from '../components/VideoPlayer';
+import { ChatEntryButton } from '../components/ChatEntryButton';
 import type { DeliveryPackage, Shot, SubtitleInfo } from '../types/api';
 import { clsx } from 'clsx';
+import { apiClient } from '../api/client';
 import { getUserId } from '../utils/userId';
 
 export function DeliveryPage() {
@@ -57,6 +50,9 @@ export function DeliveryPage() {
 
   const handleMerge = async () => {
     try {
+      if (story?.status === 'pending_merge') {
+        await apiClient.approveMerge(storyId!);
+      }
       await mergeStory.mutateAsync({ storyId: storyId! });
       notify.success('Merge Started', 'Video merging has begun. This may take a few minutes.');
       refetch();
@@ -178,10 +174,11 @@ export function DeliveryPage() {
               <button onClick={() => navigate(`/stories/${storyId}/progress`)} className="btn-ghost p-2">
                 <ArrowLeftIcon className="w-5 h-5" />
               </button>
-              <div>
+              <div className="flex-1">
                 <h1 className="text-lg font-semibold text-gray-900">Video Delivery</h1>
                 <p className="text-sm text-gray-500">{story?.brief?.narrative?.substring(0, 80)}...</p>
               </div>
+              <ChatEntryButton storyId={storyId} />
             </div>
 
             <div className="flex items-center gap-3">
@@ -395,7 +392,7 @@ function VideoTab({
   );
 }
 
-function SubtitlesTab({ pkg, selectedSubtitle, onSubtitleChange }: { pkg: DeliveryPackage; selectedSubtitle: string; onSubtitleChange: (lang: string) => void }) {
+function SubtitlesTab({ pkg, selectedSubtitle: _selectedSubtitle, onSubtitleChange: _onSubtitleChange }: { pkg: DeliveryPackage; selectedSubtitle: string; onSubtitleChange: (lang: string) => void }) {
   const subtitles = pkg.subtitles;
 
   if (!subtitles || (!subtitles.srtUrl && !subtitles.vttUrl && !subtitles.assUrl)) {
@@ -663,7 +660,7 @@ function CostStat({ label, value, color }: { label: string; value: string; color
 }
 
 function PartialRegenModal({
-  storyId,
+  storyId: _storyId,
   shots,
   selectedShots,
   onToggleShot,

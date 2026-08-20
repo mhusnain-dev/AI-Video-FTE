@@ -66,28 +66,24 @@ function getRedisClient(): RedisType {
       console.log('[Redis] Reconnecting...');
     });
   } else {
-    console.log('[Redis] Returning existing client, status:', redis.status);
+    // Only log on status transitions, not every call
   }
   return redis!;
 }
 
 export async function ensureRedisConnected(): Promise<void> {
   const r = getRedis();
-  console.log('[Redis] ensureRedisConnected called, status:', r.status);
   if (r.status === 'ready') {
-    console.log('[Redis] Already ready');
     return;
   }
   await new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('Redis connection timeout')), 10000);
     r.once('ready', () => {
       clearTimeout(timeout);
-      console.log('[Redis] ensureRedisConnected resolved');
       resolve();
     });
     r.once('error', (err) => {
       clearTimeout(timeout);
-      console.error('[Redis] ensureRedisConnected error:', err.message);
       reject(err);
     });
   });
@@ -201,14 +197,13 @@ export async function consumeStream(
   groupName: string,
   consumerName: string,
   count: number = 10,
-  blockMs: number = 5000
+  _blockMs: number = 5000
 ): Promise<StreamMessage[]> {
   const r = getRedis();
   const results = await measureRedisCommand('xreadgroup', () =>
     r.xreadgroup(
       'GROUP', groupName, consumerName,
       'COUNT', count,
-      'BLOCK', blockMs,
       'STREAMS', stream, '>'
     )
   ) as [string, [string, string[]][]][];
@@ -288,6 +283,17 @@ export async function getStreamLength(stream: string): Promise<number> {
 export async function trimStream(stream: string, maxLength: number): Promise<void> {
   const r = getRedis();
   await measureRedisCommand('xtrim', () => r.xtrim(stream, 'MAXLEN', '~', maxLength));
+}
+
+export async function clearStream(stream: string): Promise<number> {
+  const r = getRedis();
+  // Read all messages and delete them
+  const results = await r.xrange(stream, '-', '+', 'COUNT', 1000);
+  if (results.length === 0) return 0;
+
+  const ids = results.map(([id]) => id);
+  await r.xdel(stream, ...ids);
+  return ids.length;
 }
 
 export async function closeRedis(): Promise<void> {

@@ -99,13 +99,6 @@ export function VideoPlayer({
     }
   };
 
-  const handleDownload = () => {
-    const a = document.createElement('a');
-    a.href = src;
-    a.download = 'video.mp4';
-    a.click();
-  };
-
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!videoRef.current) return;
 

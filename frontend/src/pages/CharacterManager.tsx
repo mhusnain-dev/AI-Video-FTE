@@ -6,11 +6,9 @@ import {
   TrashIcon,
   PlayIcon,
   CheckCircleIcon,
-  XCircleIcon,
-  ExclamationTriangleIcon,
   ShieldCheckIcon,
 } from '@heroicons/react/24/outline';
-import { useCharacters, useUploadCharacter, useDeleteCharacter, useStory } from '../hooks/useStories';
+import { useCharacters, useDeleteCharacter, useStory } from '../hooks/useStories';
 import { useUIStore, useNotifications } from '../store/uiStore';
 import { CharacterUploader } from '../components/CharacterUploader';
 import { Modal, ConfirmDialog } from '../components/Modal';
@@ -30,7 +28,6 @@ export function CharacterManager() {
 
   const { data: story } = useStory(storyId || '');
   const { data: charactersResponse, isLoading, refetch } = useCharacters(storyId || '');
-  const uploadCharacter = useUploadCharacter();
   const deleteCharacter = useDeleteCharacter();
 
   const userId = getUserId();

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   PlusIcon,
   DocumentTextIcon,
@@ -11,35 +11,17 @@ import {
   FunnelIcon,
 } from '@heroicons/react/24/outline';
 import { useStories, useHealth } from '../hooks/useStories';
-import { useUIStore, useNotifications } from '../store/uiStore';
-import { ShotCard } from '../components/ShotCard';
 import { StatusBadge } from '../components/ShotCard';
 import type { Story, StoryStatus } from '../types/api';
 
-const STATUS_COLORS: Record<StoryStatus, string> = {
-  draft: 'bg-gray-100 text-gray-700',
-  planning: 'bg-blue-100 text-blue-700',
-  awaiting_approval: 'bg-yellow-100 text-yellow-700',
-  approved: 'bg-green-100 text-green-700',
-  in_progress: 'bg-indigo-100 text-indigo-700',
-  generating: 'bg-purple-100 text-purple-700',
-  pending_merge: 'bg-amber-100 text-amber-700',
-  merging: 'bg-pink-100 text-pink-700',
-  completed: 'bg-emerald-100 text-emerald-700',
-  failed: 'bg-red-100 text-red-700',
-  cancelled: 'bg-gray-100 text-gray-700',
-  paused_cost: 'bg-orange-100 text-orange-700',
-  paused_rate_limit: 'bg-yellow-100 text-yellow-700',
-  paused_sacred_guard: 'bg-red-100 text-red-700',
-};
-
-const STATUS_ICONS = {
+const STATUS_ICONS: Record<StoryStatus, typeof DocumentTextIcon> = {
   draft: DocumentTextIcon,
   planning: ClockIcon,
   awaiting_approval: ExclamationTriangleIcon,
   approved: CheckCircleIcon,
   in_progress: ClockIcon,
   generating: ClockIcon,
+  pending_merge: ClockIcon,
   merging: ClockIcon,
   completed: CheckCircleIcon,
   failed: XCircleIcon,
@@ -51,11 +33,9 @@ const STATUS_ICONS = {
 
 export function Dashboard() {
   const navigate = useNavigate();
-  const { notify } = useNotifications();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [page, setPage] = useState(1);
-  const [selectedStory, setSelectedStory] = useState<Story | null>(null);
 
   const { data: storiesResponse, isLoading, isError, refetch } = useStories({
     page,

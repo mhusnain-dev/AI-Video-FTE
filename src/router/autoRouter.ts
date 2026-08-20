@@ -4,7 +4,7 @@
  * Selects best model per shot based on user priority, eligibility, and availability
  */
 
-import { getEligibleModels, getUserModelPriority, getModelById, initializeModelRegistryTable } from './modelRegistry.js';
+import { getEligibleModels, getUserModelPriority, getModelById, getModelRegistry, initializeModelRegistryTable } from './modelRegistry.js';
 import { query } from '../shared/db.js';
 import type { ModelCapabilities, Resolution, AspectRatio, ModelCapability } from '../shared/types.js';
 import { config } from '../shared/config.js';
@@ -55,7 +55,7 @@ export async function selectModelForShot(
 
     const eligibility = await checkEligibility(overrideModel, requirements);
     if (!eligibility.eligible) {
-      modelEligibilityFilteredTotal.inc({ model_id: requirements.modelOverride, reason: eligibility.reason || 'unknown' });
+      modelEligibilityFilteredTotal.inc({ model_id: requirements.modelOverride, reason: eligibility.reason });
       throw new Error(`Override model ${requirements.modelOverride} not eligible: ${eligibility.reason}`);
     }
 
@@ -208,12 +208,20 @@ export async function getModelEligibility(
     requiredCapabilities: shot.required_capabilities as ModelCapability[],
   };
 
-  const allModels = await getEligibleModels(requirements);
-  return allModels.map(model => ({
-    modelId: model.id,
-    eligible: true,
-    reason: undefined,
-  }));
+  // Get all models from registry and check eligibility for each
+  const allModels = await getModelRegistry();
+  const results: { modelId: string; eligible: boolean; reason?: string }[] = [];
+
+  for (const model of allModels) {
+    const eligibility = await checkEligibility(model, requirements);
+    results.push({
+      modelId: model.id,
+      eligible: eligibility.eligible,
+      reason: eligibility.reason,
+    });
+  }
+
+  return results;
 }
 
 /**

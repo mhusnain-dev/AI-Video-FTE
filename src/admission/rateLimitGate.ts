@@ -22,7 +22,10 @@ const WINDOW_SECONDS = 60; // 1-minute sliding window
 /**
  * Main Rate Limit check
  */
-export async function checkRateLimit(context: AdmissionContext): Promise<RateLimitResult> {
+export async function checkRateLimit(
+  context: AdmissionContext,
+  getProjectId: (storyId: string) => Promise<string | null> = getProjectIdForStory,
+): Promise<RateLimitResult> {
   const rateConfig = config.admission.rateLimit;
   const now = new Date();
   const windowStart = new Date(now.getTime() - WINDOW_SECONDS * 1000);
@@ -70,7 +73,7 @@ export async function checkRateLimit(context: AdmissionContext): Promise<RateLim
   }
 
   // 4. Check per-project override (if story has project_id)
-  const projectId = await getProjectIdForStory(context.storyId);
+  const projectId = await getProjectId(context.storyId);
   if (projectId && rateConfig.perProjectOverrides[projectId]) {
     const projectLimit = rateConfig.perProjectOverrides[projectId].global || globalLimit;
     const projectUsage = await getUsageCount('project', projectId, windowStart);
@@ -135,7 +138,7 @@ async function recordUsage(scopeType: string, scopeKey: string, timestamp: Date)
 /**
  * Get project ID for a story (if stories belong to projects)
  */
-async function getProjectIdForStory(_storyId: string): Promise<string | null> {
+export async function getProjectIdForStory(_storyId: string): Promise<string | null> {
   // In this implementation, stories don't have project_id by default
   // Could be extended if needed
   return null;

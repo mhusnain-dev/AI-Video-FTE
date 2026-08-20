@@ -3,6 +3,8 @@ import { Routes, Route } from 'react-router-dom';
 import { AppLayout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { NotificationContainer } from './components/NotificationContainer';
+import { ChatModal } from './components/ChatModal';
+import { useChatStore } from './store/chatStore';
 
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
 const StoryCreate = lazy(() => import('./pages/StoryCreate').then(m => ({ default: m.StoryCreate })));
@@ -32,6 +34,8 @@ function LoadingFallback() {
 }
 
 export function App() {
+  const { isOpen } = useChatStore();
+
   return (
     <>
       <Routes>
@@ -40,6 +44,16 @@ export function App() {
         <Route path="/forgot-password" element={<Suspense fallback={<LoadingFallback />}><ForgotPassword /></Suspense>} />
         <Route path="/reset-password" element={<Suspense fallback={<LoadingFallback />}><ResetPassword /></Suspense>} />
         <Route
+          path="/pending"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<LoadingFallback />}>
+                <PendingApproval />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/*"
           element={
             <ProtectedRoute>
@@ -47,7 +61,6 @@ export function App() {
                 <Suspense fallback={<LoadingFallback />}>
                   <Routes>
                     <Route path="/admin" element={<AdminDashboard />} />
-                    <Route path="/pending" element={<PendingApproval />} />
                     <Route path="/" element={<Dashboard />} />
                     <Route path="/stories/new" element={<StoryCreate />} />
                     <Route path="/stories/:storyId/plan" element={<ShotPlanReview />} />
@@ -69,6 +82,7 @@ export function App() {
         />
       </Routes>
       <NotificationContainer />
+      {isOpen && <ChatModal />}
     </>
   );
 }

@@ -1,12 +1,12 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeftIcon, CheckCircleIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import { useCreateStory, useCharacters, characterKeys } from '../hooks/useStories';
-import { useUIStore, useNotifications } from '../store/uiStore';
+import { useNotifications } from '../store/uiStore';
 import { CharacterUploader } from '../components/CharacterUploader';
 import { Modal } from '../components/Modal';
-import type { StoryBrief, AudioConfig, CharacterReference } from '../types/api';
+import type { StoryBrief, CharacterReference } from '../types/api';
 import { clsx } from 'clsx';
 import { getUserId } from '../utils/userId';
 
@@ -66,7 +66,7 @@ export function StoryCreate() {
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showCharacterModal, setShowCharacterModal] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting] = useState(false);
   const [storyId, setStoryId] = useState<string | null>(null);
   const [isCreatingStory, setIsCreatingStory] = useState(false);
   const [characterUploadSuccess, setCharacterUploadSuccess] = useState(false);
@@ -173,7 +173,7 @@ export function StoryCreate() {
     }));
   };
 
-  const handleCharacterUpload = (character: CharacterReference) => {
+  const handleCharacterUpload = (_character: CharacterReference) => {
     if (storyId) {
       queryClient.invalidateQueries({ queryKey: characterKeys.list(storyId) });
     }
