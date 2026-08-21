@@ -3,7 +3,8 @@
  * Webhook endpoints for receiving completion notifications from model providers
  */
 
-import express, { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
+import express from 'express';
 import { body, param, validationResult } from 'express-validator';
 import { handleWebhook, getWebhookStats } from './webhookHandler.js';
 import type { WebhookPayload } from '../shared/types.js';

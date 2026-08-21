@@ -158,8 +158,8 @@ export async function dispatchShot(
 
     const { selectModelForShot } = await import('../router/autoRouter.js');
     const routingDecision = await selectModelForShot(userId, {
-      resolution: storyResolution as any,
-      aspectRatio: storyAspectRatio as any,
+      resolution: storyResolution,
+      aspectRatio: storyAspectRatio,
       durationSeconds: shot.durationSeconds,
       requiredCapabilities: ['text_to_video'],
     });

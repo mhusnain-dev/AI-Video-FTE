@@ -68,7 +68,7 @@ function getRedisClient(): RedisType {
   } else {
     // Only log on status transitions, not every call
   }
-  return redis!;
+  return redis;
 }
 
 export async function ensureRedisConnected(): Promise<void> {
@@ -103,7 +103,7 @@ export function getSubscriber(): RedisType {
       maxRetriesPerRequest: 3,
     });
   }
-  return subscriber!;
+  return subscriber;
 }
 
 async function measureRedisCommand<T>(command: string, fn: () => Promise<T>): Promise<T> {

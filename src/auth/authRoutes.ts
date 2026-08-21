@@ -3,7 +3,8 @@
  * POST /auth/register, POST /auth/login, GET /auth/me
  */
 
-import express, { Request, Response } from 'express';
+import type { Request, Response } from 'express';
+import express from 'express';
 import { body, validationResult } from 'express-validator';
 import { registerUser, loginUser, verifyTokenAndGetUser, requestPasswordReset, resetPassword } from './authService.js';
 import { authMiddleware } from './authMiddleware.js';

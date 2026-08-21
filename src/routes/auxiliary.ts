@@ -3,7 +3,8 @@
  * Catch-all endpoints for frontend API calls that don't fit in other route files
  */
 
-import express, { Request, Response } from 'express';
+import type { Request, Response } from 'express';
+import express from 'express';
 import { param, body, validationResult } from 'express-validator';
 import { query } from '../shared/db.js';
 import { approveMerge } from '../ingestion/storyService.js';

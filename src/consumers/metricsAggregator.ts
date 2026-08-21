@@ -5,7 +5,8 @@
  * Implements FR-034, NFR-001, AC-029
  */
 
-import { BaseConsumer, ConsumerOptions } from './baseConsumer.js';
+import type { ConsumerOptions } from './baseConsumer.js';
+import { BaseConsumer } from './baseConsumer.js';
 import { query } from '../shared/db.js';
 import type { StreamMessage, StateChangeEvent } from '../shared/types.js';
 import { config } from '../shared/config.js';

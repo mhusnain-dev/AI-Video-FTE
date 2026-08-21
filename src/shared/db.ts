@@ -3,7 +3,8 @@
  * PostgreSQL with pgvector support
  */
 
-import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
+import type { PoolClient, QueryResult, QueryResultRow } from 'pg';
+import { Pool } from 'pg';
 import { config } from './config.js';
 import { dbQueryDurationSeconds } from './metrics.js';
 

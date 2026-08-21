@@ -7,7 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'yaml';
 import 'dotenv/config';
-import { AppConfig } from './types.js';
+import type { AppConfig } from './types.js';
 
 const CONFIG_DIR = process.env.CONFIG_DIR || path.join(process.cwd(), 'config');
 

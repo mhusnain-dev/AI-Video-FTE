@@ -3,7 +3,8 @@
  * GET /api/projects/:projectId/settings, PATCH /api/projects/:projectId/settings
  */
 
-import express, { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
+import express from 'express';
 import { param, body, validationResult } from 'express-validator';
 import { query } from '../shared/db.js';
 

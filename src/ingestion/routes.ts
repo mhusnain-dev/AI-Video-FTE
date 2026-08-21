@@ -3,7 +3,8 @@
  * REST endpoints for story creation, plan presentation, revision, and character management
  */
 
-import express, { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
+import express from 'express';
 import { body, param, query as queryValidator, validationResult } from 'express-validator';
 import { createStory, getStory, presentShotPlan, approveShotPlan, approveMerge, reviseShotPlan, updateStoryStatus } from './storyService.js';
 import { uploadCharacterReference, getCharacterReferences, getCharacterByName } from './characterService.js';

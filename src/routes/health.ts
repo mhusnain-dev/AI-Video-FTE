@@ -4,7 +4,7 @@
  * Provides /health, /health/live, /health/ready, /health/startup, /health/<service>, /metrics
  */
 
-import { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import { config } from '../shared/config.js';
 import { getPool, healthCheck as dbHealthCheck } from '../shared/db.js';
 import { getRedis, closeRedis } from '../shared/redis.js';

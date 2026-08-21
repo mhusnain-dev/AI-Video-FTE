@@ -3,7 +3,8 @@
  * REST endpoints for model selection, registry management, and user preferences
  */
 
-import express, { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
+import express from 'express';
 import { body, param, query, validationResult } from 'express-validator';
 import { getModelRegistry, getModelById, upsertModel, deactivateModel, initializeModelRegistryTable } from './modelRegistry.js';
 import { selectModelForShot, getNextFallback, getDispatchHistory, recordDispatchAttempt } from './autoRouter.js';

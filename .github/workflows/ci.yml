@@ -51,6 +51,38 @@ jobs:
   test:
     name: Unit & Integration Tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fte_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      vault:
+        image: hashicorp/vault:1.15
+        ports:
+          - 8200:8200
+        env:
+          VAULT_DEV_ROOT_TOKEN_ID: test-token
+          VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+        cap_add:
+          - IPC_LOCK
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -64,8 +96,34 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Initialize Vault transit engine
+        run: |
+          sleep 3
+          curl -s -X POST \
+            -H "X-Vault-Token: test-token" \
+            -d '{"type":"transit"}' \
+            http://localhost:8200/v1/sys/mounts/transit || true
+          curl -s -X POST \
+            -H "X-Vault-Token: test-token" \
+            -d '{"type":"aes256-gcm96"}' \
+            http://localhost:8200/v1/transit/keys/biometric-encryption || true
+          curl -s -X POST \
+            -H "X-Vault-Token: test-token" \
+            -d '{}' \
+            http://localhost:8200/v1/sys/mounts/transit/rotate || true
+
+      - name: Initialize Postgres schema
+        run: node migrations/run.js
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DATABASE: fte_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_SSL: 'false'
+
       - name: Run tests
-        run: npm test -- --testTimeout=30000
+        run: npm test -- --testTimeout=30000 --testPathIgnorePatterns='tests/(integration|security)'
         env:
           NODE_ENV: test
           POSTGRES_HOST: localhost
@@ -87,6 +145,38 @@ jobs:
     name: Coverage Report
     runs-on: ubuntu-latest
     needs: test
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fte_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      vault:
+        image: hashicorp/vault:1.15
+        ports:
+          - 8200:8200
+        env:
+          VAULT_DEV_ROOT_TOKEN_ID: test-token
+          VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+        cap_add:
+          - IPC_LOCK
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -100,8 +190,30 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Initialize Vault transit engine
+        run: |
+          sleep 3
+          curl -s -X POST \
+            -H "X-Vault-Token: test-token" \
+            -d '{"type":"transit"}' \
+            http://localhost:8200/v1/sys/mounts/transit || true
+          curl -s -X POST \
+            -H "X-Vault-Token: test-token" \
+            -d '{"type":"aes256-gcm96"}' \
+            http://localhost:8200/v1/transit/keys/biometric-encryption || true
+
+      - name: Initialize Postgres schema
+        run: node migrations/run.js
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DATABASE: fte_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_SSL: 'false'
+
       - name: Run tests with coverage
-        run: npm test -- --coverage --testTimeout=30000
+        run: npm test -- --coverage --testTimeout=30000 --testPathIgnorePatterns='tests/(integration|security)'
         env:
           NODE_ENV: test
           POSTGRES_HOST: localhost

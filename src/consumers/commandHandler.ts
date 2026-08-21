@@ -4,7 +4,8 @@
  * Implements FR-017, FR-018, FR-019
  */
 
-import { BaseConsumer, ConsumerOptions } from './baseConsumer.js';
+import type { ConsumerOptions } from './baseConsumer.js';
+import { BaseConsumer } from './baseConsumer.js';
 import { STREAMS, CONSUMER_GROUPS } from '../shared/redis.js';
 import { query } from '../shared/db.js';
 import { dispatchShot, dispatchWithFallback, isShotDispatched } from '../dispatch/shotDispatcher.js';
@@ -172,8 +173,8 @@ export class CommandHandlerConsumer extends BaseConsumer {
       try {
         // Route model for this shot
         const routingDecision = await selectModelForShot(userId, {
-          resolution: story.resolution as any,
-          aspectRatio: story.aspect_ratio as any,
+          resolution: story.resolution,
+          aspectRatio: story.aspect_ratio,
           durationSeconds: shot.durationSeconds,
           requiredCapabilities: ['text_to_video'],
         });
@@ -201,7 +202,7 @@ export class CommandHandlerConsumer extends BaseConsumer {
         console.error(`Failed to dispatch shot ${shot.id}:`, error);
         // Error will be captured by dispatchShot and shot status updated
       }
-    };
+    }
 
     // Start concurrent dispatch workers
     const workers = Array.from({ length: Math.min(concurrencyLimit, shotsToDispatch.length) }, () =>
@@ -289,8 +290,8 @@ export class CommandHandlerConsumer extends BaseConsumer {
       try {
         // Route model (may use same or fallback model)
         const routingDecision = await selectModelForShot(userId, {
-          resolution: story.resolution as any,
-          aspectRatio: story.aspect_ratio as any,
+          resolution: story.resolution,
+          aspectRatio: story.aspect_ratio,
           durationSeconds: shot.durationSeconds,
           requiredCapabilities: ['text_to_video'],
         });

@@ -3,7 +3,8 @@
  * GET /api/users/:userId/preferences, PUT /api/users/:userId/preferences, DELETE /api/users/:userId/preferences
  */
 
-import express, { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
+import express from 'express';
 import { param, body, validationResult } from 'express-validator';
 import { query } from '../shared/db.js';
 import type { UserPreferenceData } from '../shared/types.js';

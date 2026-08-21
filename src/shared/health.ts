@@ -4,7 +4,7 @@
  * Implements FR-034, NFR-001, AC-029
  */
 
-import { HealthStatus, ComponentHealth } from './types.js';
+import type { HealthStatus, ComponentHealth } from './types.js';
 
 export type HealthCheckFn = () => Promise<ComponentHealth>;
 

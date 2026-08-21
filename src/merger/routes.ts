@@ -3,9 +3,11 @@
  * REST endpoints for video merging, delivery, and partial regeneration
  */
 
-import express, { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
+import express from 'express';
 import { body, param, validationResult } from 'express-validator';
-import { mergeStoryShots, generateDeliveryPackage, partialRegenerate, MergeOptions } from './merger.js';
+import type { MergeOptions } from './merger.js';
+import { mergeStoryShots, generateDeliveryPackage, partialRegenerate } from './merger.js';
 
 const router = express.Router();
 

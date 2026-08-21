@@ -4,7 +4,8 @@
  * POST /admin/revoke/:id, POST /admin/extend/:id, DELETE /admin/users/:id, GET /admin/audit
  */
 
-import express, { Request, Response } from 'express';
+import type { Request, Response } from 'express';
+import express from 'express';
 import { body, param, query as queryValidator, validationResult } from 'express-validator';
 import * as adminService from './adminService.js';
 

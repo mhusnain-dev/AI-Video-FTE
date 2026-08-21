@@ -3,7 +3,8 @@
  * GET /api/settings, PUT /api/settings
  */
 
-import express, { Request, Response } from 'express';
+import type { Request, Response } from 'express';
+import express from 'express';
 import { body, validationResult } from 'express-validator';
 import { query } from '../shared/db.js';
 import type { UserSettingsData } from '../shared/types.js';
