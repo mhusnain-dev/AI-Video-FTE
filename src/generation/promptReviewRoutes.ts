@@ -4,7 +4,8 @@
  * PUT /api/stories/:id/prompt-review — accepts user-edited prompt, saves it, proceeds
  */
 
-import express, { Request, Response } from 'express';
+import type { Request, Response } from 'express';
+import express from 'express';
 import { param, body, validationResult } from 'express-validator';
 import { query } from '../shared/db.js';
 import { compilePrompt } from './promptCompiler.js';

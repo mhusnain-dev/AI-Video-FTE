@@ -84,10 +84,10 @@ jest.mock('../../src/router/modelRegistry', () => {
   };
 });
 
-import { getUserModelPriority, setUserModelPriority, getSystemDefaultPriority, initializeModelRegistryTable } from '../../src/router/modelRegistry';
+import { getUserModelPriority, setUserModelPriority, getSystemDefaultPriority, initializeModelRegistryTable } from '../../src/router/modelRegistry.js';
 
 // Import the routes AFTER mocks are set up
-import userPriorityRoutes from '../../src/router/userPriorityRoutes';
+import userPriorityRoutes from '../../src/router/userPriorityRoutes.js';
 
 describe('Model Priority API - /api/users/:userId/model-priority', () => {
   let app: express.Express;

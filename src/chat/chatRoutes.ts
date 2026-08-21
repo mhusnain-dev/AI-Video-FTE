@@ -5,7 +5,8 @@
  * GET /api/stories/:id/chat/stream - SSE stream for token streaming
  */
 
-import express, { Request, Response } from 'express';
+import type { Request, Response } from 'express';
+import express from 'express';
 import { param, body, query as queryValidator, validationResult } from 'express-validator';
 import { query } from '../shared/db.js';
 import { getRedis, STREAMS } from '../shared/redis.js';
@@ -208,7 +209,7 @@ router.post(
 
     try {
       // Build context
-      const contextStr = await buildGeminiContext(storyId as string, userId as string, mentions);
+      const contextStr = await buildGeminiContext(storyId as string, userId, mentions);
 
       // Get user's temperature setting
       const settingsResult = await query(
@@ -453,7 +454,7 @@ router.get(
             for (const message of messages) {
               if (isClosed) break;
               const messageId = message[0];
-              const fields = message[1] as [string, string][];
+              const fields = message[1];
               lastId = messageId;
 
               const data = Object.fromEntries(fields);

@@ -4,7 +4,7 @@
  * GET /api/stories/:id/stream
  */
 
-import { Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import { getRedis, STREAMS } from '../shared/redis.js';
 import { query } from '../shared/db.js';
 
@@ -98,7 +98,7 @@ export async function handleStoryStream(req: Request, res: Response): Promise<vo
             if (isClosed) break;
 
             const messageId = message[0];
-            const fields = message[1] as [string, string][];
+            const fields = message[1];
 
             lastId = messageId;
 

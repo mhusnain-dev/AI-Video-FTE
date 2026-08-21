@@ -5,12 +5,18 @@
  * Implements FR-031, FR-032, FR-033, FR-034, NFR-004, NFR-005
  */
 
-import { BaseConsumer, ConsumerOptions, ConsumerStats } from './baseConsumer.js';
-import { MetricsAggregatorConsumer, MetricsAggregatorOptions } from './metricsAggregator.js';
-import { AlertEvaluatorConsumer, AlertEvaluatorOptions } from './alertEvaluator.js';
-import { AuditArchiverConsumer, AuditArchiverOptions } from './auditArchiver.js';
-import { DashboardUpdaterConsumer, DashboardUpdaterOptions } from './dashboardUpdater.js';
-import { CommandHandlerConsumer, CommandHandlerOptions } from './commandHandler.js';
+import type { BaseConsumer, ConsumerStats } from './baseConsumer.js';
+import { ConsumerOptions } from './baseConsumer.js';
+import type { MetricsAggregatorOptions } from './metricsAggregator.js';
+import { MetricsAggregatorConsumer } from './metricsAggregator.js';
+import type { AlertEvaluatorOptions } from './alertEvaluator.js';
+import { AlertEvaluatorConsumer } from './alertEvaluator.js';
+import type { AuditArchiverOptions } from './auditArchiver.js';
+import { AuditArchiverConsumer } from './auditArchiver.js';
+import type { DashboardUpdaterOptions } from './dashboardUpdater.js';
+import { DashboardUpdaterConsumer } from './dashboardUpdater.js';
+import type { CommandHandlerOptions } from './commandHandler.js';
+import { CommandHandlerConsumer } from './commandHandler.js';
 import { query } from '../shared/db.js';
 import { config } from '../shared/config.js';
 import { CONSUMER_GROUPS, STREAMS } from '../shared/redis.js';
@@ -100,7 +106,7 @@ export class ConsumerManager {
 
     // Metrics Aggregator
     if (this.options.metricsAggregator !== false) {
-      const opts = this.options.metricsAggregator as MetricsAggregatorOptions;
+      const opts = this.options.metricsAggregator;
       const consumer = new MetricsAggregatorConsumer({
         groupName: CONSUMER_GROUPS.METRICS_AGGREGATOR,
         consumerName: `metrics-aggregator-${consumerId()}`,
@@ -117,7 +123,7 @@ export class ConsumerManager {
 
     // Alert Evaluator
     if (this.options.alertEvaluator !== false) {
-      const opts = this.options.alertEvaluator as AlertEvaluatorOptions;
+      const opts = this.options.alertEvaluator;
       const consumer = new AlertEvaluatorConsumer({
         groupName: CONSUMER_GROUPS.ALERT_EVALUATOR,
         consumerName: `alert-evaluator-${consumerId()}`,
@@ -136,7 +142,7 @@ export class ConsumerManager {
 
     // Audit Archiver
     if (this.options.auditArchiver !== false) {
-      const opts = this.options.auditArchiver as AuditArchiverOptions;
+      const opts = this.options.auditArchiver;
       const consumer = new AuditArchiverConsumer({
         groupName: CONSUMER_GROUPS.AUDIT_ARCHIVER,
         consumerName: `audit-archiver-${consumerId()}`,
@@ -160,7 +166,7 @@ export class ConsumerManager {
 
     // Dashboard Updater
     if (this.options.dashboardUpdater !== false) {
-      const opts = this.options.dashboardUpdater as DashboardUpdaterOptions;
+      const opts = this.options.dashboardUpdater;
       const consumer = new DashboardUpdaterConsumer({
         groupName: CONSUMER_GROUPS.DASHBOARD_UPDATER,
         consumerName: `dashboard-updater-${consumerId()}`,
@@ -178,7 +184,7 @@ export class ConsumerManager {
 
     // Command Handler
     if (this.options.commandHandler !== false) {
-      const opts = this.options.commandHandler as CommandHandlerOptions;
+      const opts = this.options.commandHandler;
       const consumer = new CommandHandlerConsumer({
         consumerName: `command-handler-${consumerId()}`,
         count: opts.count,

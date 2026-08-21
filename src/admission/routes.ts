@@ -3,7 +3,8 @@
  * REST endpoints for admission pipeline management
  */
 
-import express, { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
+import express from 'express';
 import { body, param, validationResult } from 'express-validator';
 import { runAdmissionPipeline, checkStoryCreationAdmission, checkPostGenerationAdmission, resolvePause } from './admissionController.js';
 import { getRateLimitStatus } from './rateLimitGate.js';

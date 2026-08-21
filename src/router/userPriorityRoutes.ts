@@ -4,7 +4,8 @@
  * Delegates to existing modelRegistry business logic
  */
 
-import express, { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
+import express from 'express';
 import { body, param, validationResult } from 'express-validator';
 import { getUserModelPriority, setUserModelPriority, getSystemDefaultPriority, initializeModelRegistryTable } from './modelRegistry.js';
 import { query } from '../shared/db.js';

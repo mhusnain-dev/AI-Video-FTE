@@ -16,7 +16,7 @@ import {
   decryptEmbeddingFromStorage,
   initializeVaultKey,
   type EncryptedEnvelope,
-} from '../../src/shared/vault';
+} from '../../src/shared/vault.js';
 
 describe('Encryption at-rest verification', () => {
   beforeAll(async () => {

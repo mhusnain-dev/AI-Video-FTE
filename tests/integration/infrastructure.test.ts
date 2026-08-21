@@ -4,16 +4,16 @@
  */
 
 import { jest } from '@jest/globals';
-import { config } from '../../src/shared/config';
+import { config } from '../../src/shared/config.js';
 import { randomUUID } from 'crypto';
 
 // Use real timers for integration tests (global setup uses fake timers)
 jest.useRealTimers();
 
-import { getPool, healthCheck, query, closePool } from '../../src/shared/db';
-import { getRedis, initializeStreams, closeRedis, publishStoryEvent, STREAMS } from '../../src/shared/redis';
-import { initializeVaultKey, encryptEmbeddingForStorage, decryptEmbeddingFromStorage, generateDEK, encryptDEKWithKEK, decryptDEKWithKEK } from '../../src/shared/vault';
-import { initializeEventBus, emitStoryStateChange, StoryState } from '../../src/shared/events';
+import { getPool, healthCheck, query, closePool } from '../../src/shared/db.js';
+import { getRedis, initializeStreams, closeRedis, publishStoryEvent, STREAMS } from '../../src/shared/redis.js';
+import { initializeVaultKey, encryptEmbeddingForStorage, decryptEmbeddingFromStorage, generateDEK, encryptDEKWithKEK, decryptDEKWithKEK } from '../../src/shared/vault.js';
+import { initializeEventBus, emitStoryStateChange, StoryState } from '../../src/shared/events.js';
 
 describe('Phase 0: Foundation Infrastructure', () => {
   beforeAll(async () => {

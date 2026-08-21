@@ -3,7 +3,7 @@
  * Express middleware to verify JWT on protected routes
  */
 
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { verifyTokenAndGetUser } from './authService.js';
 import type { AuthUser } from './authService.js';
 

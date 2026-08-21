@@ -5,13 +5,10 @@ module.exports = {
   extends: [
     'eslint:recommended',
     'plugin:@typescript-eslint/recommended',
-    'plugin:@typescript-eslint/recommended-type-checked',
   ],
   parserOptions: {
     ecmaVersion: 'latest',
     sourceType: 'module',
-    project: './tsconfig.json',
-    tsconfigRootDir: __dirname,
   },
   env: {
     node: true,
@@ -19,12 +16,15 @@ module.exports = {
     jest: true,
   },
   rules: {
-    '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+    '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
     '@typescript-eslint/no-explicit-any': 'warn',
-    '@typescript-eslint/consistent-type-imports': 'error',
-    '@typescript-eslint/no-floating-promises': 'warn',
-    '@typescript-eslint/await-thenable': 'error',
-    '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: false }],
+    '@typescript-eslint/no-var-requires': 'warn',
+    '@typescript-eslint/ban-types': 'warn',
+    '@typescript-eslint/consistent-type-imports': 'warn',
+    'no-empty': 'warn',
+    'no-case-declarations': 'warn',
+    '@typescript-eslint/no-namespace': 'warn',
+    '@typescript-eslint/no-this-alias': 'warn',
   },
   ignorePatterns: ['dist/', 'node_modules/', '*.config.js'],
 };

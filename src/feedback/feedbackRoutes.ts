@@ -3,7 +3,8 @@
  * POST /api/stories/:id/feedback, GET /api/stories/:id/feedback
  */
 
-import express, { Request, Response } from 'express';
+import type { Request, Response } from 'express';
+import express from 'express';
 import { param, body, validationResult } from 'express-validator';
 import { query } from '../shared/db.js';
 import type { UserFeedback } from '../shared/types.js';
