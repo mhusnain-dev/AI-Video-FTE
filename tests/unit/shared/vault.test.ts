@@ -425,11 +425,14 @@ describe('Vault', () => {
 
   describe('initializeVaultKey', () => {
     test('creates key if it does not exist', async () => {
-      mockClient.read.mockRejectedValueOnce(new Error('Not found'));
+      mockClient.read
+        .mockResolvedValueOnce({ data: {} })
+        .mockRejectedValueOnce(new Error('Not found'));
       mockClient.write.mockResolvedValueOnce({ data: {} });
 
       await initializeVaultKey();
 
+      expect(mockClient.read).toHaveBeenCalledWith('sys/mounts/transit');
       expect(mockClient.read).toHaveBeenCalledWith('transit/keys/test-key');
       expect(mockClient.write).toHaveBeenCalledWith(
         'transit/keys/test-key',
@@ -443,10 +446,13 @@ describe('Vault', () => {
     });
 
     test('does not create key if it already exists', async () => {
-      mockClient.read.mockResolvedValueOnce({ data: { type: 'aes256-gcm96' } });
+      mockClient.read
+        .mockResolvedValueOnce({ data: {} })
+        .mockResolvedValueOnce({ data: { type: 'aes256-gcm96' } });
 
       await initializeVaultKey();
 
+      expect(mockClient.read).toHaveBeenCalledWith('sys/mounts/transit');
       expect(mockClient.read).toHaveBeenCalledWith('transit/keys/test-key');
       expect(mockClient.write).not.toHaveBeenCalled();
     });
