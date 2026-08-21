@@ -50,3 +50,6 @@ frontend/test-results/
 data/
 output/
 errors_found_browser console/
+
+# Large ML model — keep local, do not commit
+models/arcfaceresnet100-11-int8.onnx
