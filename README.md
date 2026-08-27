@@ -570,9 +570,9 @@ That's it. The `npm run dev` command starts **everything**:
 After starting, create your admin account:
 
 1. Open `http://localhost:5174/register`
-2. Register with the email set in `ADMIN_EMAIL` in `.env` (default: `muhammadhusnainm6@gmail.com`)
+2. Register with the email set in `ADMIN_EMAIL` in `.env` (default: `abcdef786@gmail.com`)
 3. This email automatically gets **admin** role and is approved immediately
-4. Login with `admin123` as the password
+4. Login with `alpha4567` as the password
 
 **Other users** must be approved by an admin:
 1. New user registers → status is `pending`
