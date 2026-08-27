@@ -601,7 +601,7 @@ VAULT_TOKEN=root
 VAULT_TRANSIT_KEY=biometric-encryption
 
 # Admin
-ADMIN_EMAIL=muhammadhusnainm6@gmail.com
+ADMIN_EMAIL=abcdef786@gmail.com
 
 # LLM (for prompt enhancement and chat)
 LLM_API_KEY=your-gemini-api-key
